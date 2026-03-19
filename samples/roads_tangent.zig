@@ -1,10 +1,15 @@
-//! 3D roads: line-strip primitives with tangent semantics.
+//! 3D roads: line_strip primitives with tangent and normal vertex attributes.
 //!
-//! The road centerline has a **tangent** at each vertex (direction along the line).
-//! A renderer can use tangent (and optional **normal**, e.g. up) to extrude a band
-//! into a 3D mesh. **A style sheet can supply width and thickness** (e.g. line-width,
+//! The road centerline stores a tangent (direction along the line) and a normal
+//! (up direction) at each vertex. A renderer can use these to extrude the polyline
+//! into a 3D road mesh. A style sheet supplies width and thickness (e.g. line-width,
 //! extrusion) to control the road cross-section, similar to how MVT styles specify
 //! line width for 2D roads.
+//!
+//! For line_strip topology, normals are required. Tangents are optional: without them the renderer
+//! can still draw the line as a tube, but cannot extrude it as a flat ribbon (e.g. road markings).
+//! This sample includes tangents to demonstrate full ribbon extrusion.
+//! UV.x can represent distance along the road for road markings or dashed line textures.
 
 const schema = @import("format_3d_schema");
 
@@ -12,69 +17,49 @@ const primitive_id_road: schema.PrimitiveId = 1;
 const object_id_roads: schema.ObjectId = 1;
 const material_id_road: schema.MaterialId = 1;
 
+// line_strip: normals required, tangents included here for flat ribbon extrusion.
+// primitive_restart = true allows multiple disconnected road segments in one buffer.
 const primitive_road = schema.Primitive3D{
     .id = primitive_id_road,
-    .name = "road_centerline",
     .topology = .line_strip,
     .material_id = material_id_road,
     .vertex_buffer = .{
-        .indices = null,
-        .positions = .{
-            .position_type = .{ .shape = .vec3, .scalar = .f32 },
-            .encoding = .none,
+        .indices = schema.IndexBuffer{
+            .primitive_restart = true, // 0xFFFFFFFF separates road segments.
             .element_count = 0,
             .data = &[_]u8{},
         },
-        .attributes = &[_]schema.VertexAttribute{
-            .{
-                .id = 1,
-                .name = null,
-                .value_type = .{ .shape = .vec3, .scalar = .f32 },
-                .encoding = .none,
-                .scale = null,
-                .element_count = 0,
-                .data = &[_]u8{},
-            },
-        },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
+        // Normal: up direction (Z-up) for road mesh extrusion.
+        .normals = &[_]u8{},
+        // Tangent: along-road direction for road width extrusion.
+        .tangents = &[_]u8{},
+        // UV.x: distance along road (for road markings, dashed lines). UV.y is ignored.
+        .uvs = &[_]u8{},
     },
 };
 
 const object_roads = schema.Object3D{
     .id = object_id_roads,
     .name = "roads",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id_road, .primitive_to_object = null },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{primitive_id_road},
 };
 
 const material_road = schema.Material{
     .id = material_id_road,
-    .name = "road",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{
-        .{ .id = 1, .name = "width", .value = .{ .scalar = .{ .f32 = 6.0 } } },
-    },
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.3, .y = 0.3, .z = 0.3, .w = 1.0 },
 };
 
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .features = &[_]schema.Feature{},
-    .semantics = schema.TileSemantics{
-        .vertex_attribute_semantics = &[_]schema.VertexAttributeSemanticBinding{
-            .{ .primitive_id = primitive_id_road, .attribute_id = 1, .semantic = .tangent },
-        },
-        .texture_semantics = &[_]schema.TextureSemanticBinding{},
-        .material_attribute_semantics = &[_]schema.MaterialAttributeSemanticBinding{},
-    },
+    .extent = 4096,
     .materials = &[_]schema.Material{material_road},
     .primitives = &[_]schema.Primitive3D{primitive_road},
     .objects = &[_]schema.Object3D{object_roads},
-    .scene = &[_]schema.SceneItem{
-        .{ .object = schema.ObjectInstance{
-            .object_id = object_id_roads,
-            .object_to_tile = null,
-            .feature_id = null,
-        } },
+    .features = &[_]schema.Feature{},
+    .scene = &[_]schema.ObjectInstance{
+        .{ .object_id = object_id_roads },
     },
 };
 

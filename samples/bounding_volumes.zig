@@ -1,7 +1,9 @@
-//! Bounding volumes and geometric error: culling and LOD.
+//! Bounding volumes: box on a primitive, sphere on an object, box on an instance.
 //!
-//! Primitives and objects can have an optional bounding_volume (box or sphere).
-//! Tile and LOD variants can have geometric_error for refinement decisions.
+//! Primitives, objects, and instances can each carry an optional bounding_volume
+//! (box or sphere) for view-frustum culling. When absent, consumers may compute
+//! bounds from geometry. Instance-level bounding volumes are pre-transformed into
+//! tile space, enabling efficient culling without applying the instance matrix.
 
 const schema = @import("format_3d_schema");
 
@@ -11,56 +13,58 @@ const material_id: schema.MaterialId = 1;
 
 const primitive = schema.Primitive3D{
     .id = primitive_id,
-    .name = "building",
     .topology = .triangles,
     .material_id = material_id,
+    // Bounding box in primitive-local space.
     .bounding_volume = .{ .box = .{
         .min = .{ .x = -10.0, .y = -10.0, .z = 0.0 },
         .max = .{ .x = 10.0, .y = 10.0, .z = 20.0 },
     } },
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{ .index_type = .u16, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{},
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
     },
 };
 
 const object = schema.Object3D{
     .id = object_id,
     .name = "building",
+    // Bounding sphere in object-local space.
     .bounding_volume = .{ .sphere = .{
         .center = .{ .x = 0.0, .y = 0.0, .z = 10.0 },
         .radius = 25.0,
     } },
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id, .primitive_to_object = null },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{primitive_id},
 };
 
 const material = schema.Material{
     .id = material_id,
-    .name = "default",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+    .shading_model = .lambertian,
 };
 
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .geometric_error = .{ .f32 = 1.0 },
-    .features = &[_]schema.Feature{},
-    .semantics = null,
+    .extent = 4096,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{primitive},
     .objects = &[_]schema.Object3D{object},
-    .scene = &[_]schema.SceneItem{
-        .{ .object = schema.ObjectInstance{
+    .features = &[_]schema.Feature{},
+    .scene = &[_]schema.ObjectInstance{
+        .{
             .object_id = object_id,
-            .object_to_tile = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 256.0, .y = 256.0, .z = 0.0 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
+            // Translate to (256, 256, 0).
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 256 },
+                .{ 0, 1, 0, 256 },
+                .{ 0, 0, 1, 0 },
+                .{ 0, 0, 0, 1 },
+            },
+            // Pre-transformed bounding box in tile space for efficient culling.
+            .bounding_volume = .{ .box = .{
+                .min = .{ .x = 246.0, .y = 246.0, .z = 0.0 },
+                .max = .{ .x = 266.0, .y = 266.0, .z = 20.0 },
             } },
-            .feature_id = null,
-        } },
+        },
     },
 };
 

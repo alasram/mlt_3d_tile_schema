@@ -1,88 +1,95 @@
-//! Object with multiple primitives and non-identity primitive_to_object transforms.
+//! Multi-primitive object: a tree composed of trunk and canopy primitives.
 //!
-//! Each PrimitiveInstance can have a transform from primitive space to object space
-//! (matrix or pose). Example: a "tree" object = trunk (scaled/translated) + canopy (posed on top).
+//! An Object3D directly holds a list of primitive IDs; there is no per-primitive
+//! transform. Each primitive can reference a different material from the global pool.
+//! The object is placed into tile space via a single object_to_tile matrix on the
+//! ObjectInstance. Multiple instances share the same geometry at different positions.
 
 const schema = @import("format_3d_schema");
 
 const primitive_id_trunk: schema.PrimitiveId = 1;
 const primitive_id_canopy: schema.PrimitiveId = 2;
 const object_id_tree: schema.ObjectId = 1;
-const material_id: schema.MaterialId = 1;
+const material_id_trunk: schema.MaterialId = 1;
+const material_id_canopy: schema.MaterialId = 2;
 
 const primitive_trunk = schema.Primitive3D{
     .id = primitive_id_trunk,
-    .name = "trunk",
     .topology = .triangles,
-    .material_id = material_id,
+    .material_id = material_id_trunk,
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{ .index_type = .u16, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{},
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
     },
 };
 
 const primitive_canopy = schema.Primitive3D{
     .id = primitive_id_canopy,
-    .name = "canopy",
     .topology = .triangles,
-    .material_id = material_id,
+    .material_id = material_id_canopy,
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{ .index_type = .u16, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{},
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
     },
 };
 
-// Trunk: scale 0.15 in x/y, 1.0 in z; translate z by 0.5. Canopy: at (0, 0, 1.25) in object space.
-pub const object_tree = schema.Object3D{
+// Tree: trunk and canopy share the same object. Their relative positioning is
+// baked into the vertex data in object-local space.
+const object_tree = schema.Object3D{
     .id = object_id_tree,
     .name = "tree",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{
-            .primitive_id = primitive_id_trunk,
-            .primitive_to_object = schema.Transform{
-                .matrix_f64 = .{
-                    .{ 0.15, 0.00, 0.00, 0.00 },
-                    .{ 0.00, 0.15, 0.00, 0.00 },
-                    .{ 0.00, 0.00, 1.00, 0.50 },
-                    .{ 0.00, 0.00, 0.00, 1.00 },
-                },
-            },
-        },
-        .{
-            .primitive_id = primitive_id_canopy,
-            .primitive_to_object = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 0.0, .y = 0.0, .z = 1.25 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
-            } },
-        },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{ primitive_id_trunk, primitive_id_canopy },
 };
 
-const material = schema.Material{
-    .id = material_id,
-    .name = "default",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+const material_trunk = schema.Material{
+    .id = material_id_trunk,
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.4, .y = 0.25, .z = 0.1, .w = 1.0 },
+};
+
+const material_canopy = schema.Material{
+    .id = material_id_canopy,
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.1, .y = 0.5, .z = 0.1, .w = 1.0 },
 };
 
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .features = &[_]schema.Feature{},
-    .semantics = null,
-    .materials = &[_]schema.Material{material},
+    .extent = 4096,
+    .materials = &[_]schema.Material{ material_trunk, material_canopy },
     .primitives = &[_]schema.Primitive3D{ primitive_trunk, primitive_canopy },
     .objects = &[_]schema.Object3D{object_tree},
-    .scene = &[_]schema.SceneItem{
-        .{ .object = schema.ObjectInstance{
+    .features = &[_]schema.Feature{},
+    // Same object placed at three positions via separate ObjectInstances.
+    .scene = &[_]schema.ObjectInstance{
+        .{
             .object_id = object_id_tree,
-            .object_to_tile = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 512.0, .y = 512.0, .z = 0.0 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
-            } },
-            .feature_id = null,
-        } },
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 512, 512, 0, 1 },
+            },
+        },
+        .{
+            .object_id = object_id_tree,
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 1024, 768, 0, 1 },
+            },
+        },
+        .{
+            .object_id = object_id_tree,
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 2048, 1500, 0, 1 },
+            },
+        },
     },
 };
 

@@ -1,86 +1,69 @@
-//! Buffer encoding: Scale, delta encoding, and normalized attributes.
+//! Fixed vertex types and z_scale: vec3i32 positions, vec3f32 normals, vec2u16 UVs.
 //!
-//! Positions: integer (i16), delta-from-first encoding, scale factor to convert to float
-//! (e.g. millimeters to world units). Vertex attributes: normalized integers (e.g. i8
-//! signed normalized for normals, u16 unsigned normalized for UVs).
+//! Positions are always vec3i32 (3 × i32, 12 bytes per vertex) stored as-is.
+//! z_scale on the tile converts integer Z values to meters:
+//!   height_in_meters = z_value * z_scale
+//! This allows building heights and terrain to be expressed in real-world units
+//! without changing the integer position representation.
+//!
+//! Normals are vec3f32 (3 × f32, 12 bytes per vertex), not necessarily unit length.
+//! UVs are vec2u16 (2 × u16, 4 bytes per vertex); 0 → 0.0, 65535 → 1.0.
+//! Colors are vec4u8 (4 × u8, 4 bytes per vertex); divided by 255 in shading.
+//!
+//! All buffers are stored as-is. No delta encoding. Binary compression (e.g. zstd)
+//! is applied by the MLT encoding layer.
 
 const schema = @import("format_3d_schema");
-
-const scale_i16_position: f64 = 0.001; // e.g. millimeters -> world units
 
 const primitive_id: schema.PrimitiveId = 1;
 const object_id: schema.ObjectId = 1;
 const material_id: schema.MaterialId = 1;
 
+// Building mesh: positions (vec3i32), normals (vec3f32), UVs (vec2u16).
+// z_scale = 0.001 on the tile means Z=1000 → 1.0 meter (millimeter units).
 const primitive = schema.Primitive3D{
     .id = primitive_id,
-    .name = "mesh",
     .topology = .triangles,
     .material_id = material_id,
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{
-            .index_type = .u16,
-            .encoding = .none,
-            .element_count = 0,
-            .data = &[_]u8{},
-        },
-        .positions = .{
-            .position_type = .{ .shape = .vec3, .scalar = .i16 },
-            .encoding = .from_first,
-            .scale = schema.Scale{
-                .factor = .{ .f64 = scale_i16_position },
-                .order = .scale_before_normalization,
-            },
-            .element_count = 0,
-            .data = &[_]u8{},
-        },
-        .attributes = &[_]schema.VertexAttribute{
-            .{
-                .id = 1,
-                .name = null,
-                .value_type = .{ .shape = .vec3, .scalar = .i8, .normalization = .normalized_signed },
-                .encoding = .from_first,
-                .scale = null,
-                .element_count = 0,
-                .data = &[_]u8{},
-            },
-            .{
-                .id = 2,
-                .name = null,
-                .value_type = .{ .shape = .vec2, .scalar = .u16, .normalization = .normalized_unsigned },
-                .encoding = .none,
-                .scale = null,
-                .element_count = 0,
-                .data = &[_]u8{},
-            },
-        },
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        // vec3i32: 3 × i32, 12 bytes per vertex. Stored as-is (no delta encoding).
+        .positions = &[_]u8{},
+        // vec2u16: 2 × u16, 4 bytes per vertex. 0 → 0.0, 65535 → 1.0.
+        // Present because the material has a base_color_texture; without UVs the texture is ignored.
+        .uvs = &[_]u8{},
+        // vec3f32: 3 × f32, 12 bytes per vertex. Client normalizes before use.
+        .normals = &[_]u8{},
     },
 };
 
 const object = schema.Object3D{
     .id = object_id,
-    .name = "mesh",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id, .primitive_to_object = null },
-    },
+    .name = "building",
+    .primitive_ids = &[_]schema.PrimitiveId{primitive_id},
 };
 
 const material = schema.Material{
     .id = material_id,
-    .name = "default",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+    .shading_model = .lambertian,
+    .base_color_texture = schema.Texture{
+        .kind = .base_color,
+        .data = .{ .url = "file://facade.png" },
+    },
 };
 
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .features = &[_]schema.Feature{},
-    .semantics = null,
+    .extent = 4096,
+    // z_scale: 1 extent unit = 0.001 meters (millimeter precision for Z).
+    // A building vertex at Z=15000 is 15.0 meters tall.
+    .z_scale = 0.001,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{primitive},
     .objects = &[_]schema.Object3D{object},
-    .scene = &[_]schema.SceneItem{
-        .{ .object = schema.ObjectInstance{ .object_id = object_id, .object_to_tile = null, .feature_id = null } },
+    .features = &[_]schema.Feature{},
+    .scene = &[_]schema.ObjectInstance{
+        .{ .object_id = object_id },
     },
 };
 

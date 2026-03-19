@@ -1,159 +1,185 @@
-//! Complex scene: roads and trees in one tile.
+//! Complex scene: roads and trees in one tile with features and themes.
 //!
-//! Roads: line-strip with tangent semantic (style can add width/thickness).
-//! Trees: one object (trunk + canopy) instanced at three positions; one instance
-//! uses an LOD group. Features attach properties for styling.
+//! Roads: line_strip with normals and tangents for mesh extrusion.
+//! Trees: trunk + canopy object instanced at three positions.
+//! Features: per-instance properties for styling (type, road_class).
+//! Themes: "day" and "night" appearance via per-primitive theme_material_ids.
 
 const schema = @import("format_3d_schema");
 
 const primitive_id_trunk: schema.PrimitiveId = 1;
 const primitive_id_canopy: schema.PrimitiveId = 2;
 const primitive_id_road: schema.PrimitiveId = 3;
+
 const object_id_tree: schema.ObjectId = 1;
-const object_id_tree_lod1: schema.ObjectId = 2;
-const object_id_roads: schema.ObjectId = 3;
-const material_id_trunk: schema.MaterialId = 1;
-const material_id_canopy: schema.MaterialId = 2;
-const material_id_road: schema.MaterialId = 3;
+const object_id_roads: schema.ObjectId = 2;
+
+const material_id_trunk_day: schema.MaterialId = 1;
+const material_id_canopy_day: schema.MaterialId = 2;
+const material_id_road_day: schema.MaterialId = 3;
+const material_id_road_night: schema.MaterialId = 4;
+
+// --- Primitives ---
 
 const primitive_trunk = schema.Primitive3D{
     .id = primitive_id_trunk,
-    .name = "trunk",
     .topology = .triangles,
-    .material_id = material_id_trunk,
+    .material_id = material_id_trunk_day,
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{ .index_type = .u16, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{},
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
     },
 };
 
 const primitive_canopy = schema.Primitive3D{
     .id = primitive_id_canopy,
-    .name = "canopy",
     .topology = .triangles,
-    .material_id = material_id_canopy,
+    .material_id = material_id_canopy_day,
     .vertex_buffer = .{
-        .indices = schema.IndexBuffer{ .index_type = .u16, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{},
+        .indices = schema.IndexBuffer{ .element_count = 0, .data = &[_]u8{} },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
     },
 };
 
+// Road: line_strip with normals and tangents required. Primitive restart allows
+// multiple road segments in one buffer. Night material listed in theme_material_ids
+// for style sheet selection.
 const primitive_road = schema.Primitive3D{
     .id = primitive_id_road,
-    .name = "road",
     .topology = .line_strip,
-    .material_id = material_id_road,
+    .material_id = material_id_road_day,
+    .theme_material_ids = &[_]schema.MaterialId{material_id_road_night},
     .vertex_buffer = .{
-        .indices = null,
-        .positions = .{ .position_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .element_count = 0, .data = &[_]u8{} },
-        .attributes = &[_]schema.VertexAttribute{
-            .{ .id = 1, .name = null, .value_type = .{ .shape = .vec3, .scalar = .f32 }, .encoding = .none, .scale = null, .element_count = 0, .data = &[_]u8{} },
+        .indices = schema.IndexBuffer{
+            .primitive_restart = true,
+            .element_count = 0,
+            .data = &[_]u8{},
         },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
+        .normals = &[_]u8{},
+        .tangents = &[_]u8{},
     },
 };
+
+// --- Objects ---
 
 const object_tree = schema.Object3D{
     .id = object_id_tree,
     .name = "tree",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id_trunk, .primitive_to_object = null },
-        .{ .primitive_id = primitive_id_canopy, .primitive_to_object = null },
-    },
-};
-
-const object_tree_lod1 = schema.Object3D{
-    .id = object_id_tree_lod1,
-    .name = "tree_lod1",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id_canopy, .primitive_to_object = null },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{ primitive_id_trunk, primitive_id_canopy },
 };
 
 const object_roads = schema.Object3D{
     .id = object_id_roads,
     .name = "roads",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id_road, .primitive_to_object = null },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{primitive_id_road},
 };
 
-const material_trunk = schema.Material{
-    .id = material_id_trunk,
-    .name = "trunk",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+// --- Materials ---
+
+const material_trunk_day = schema.Material{
+    .id = material_id_trunk_day,
+    .name = "trunk_day",
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.4, .y = 0.25, .z = 0.1, .w = 1.0 },
 };
 
-const material_canopy = schema.Material{
-    .id = material_id_canopy,
-    .name = "canopy",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+const material_canopy_day = schema.Material{
+    .id = material_id_canopy_day,
+    .name = "canopy_day",
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.1, .y = 0.5, .z = 0.1, .w = 1.0 },
 };
 
-const material_road = schema.Material{
-    .id = material_id_road,
-    .name = "road",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{
-        .{ .id = 1, .name = "width", .value = .{ .scalar = .{ .f32 = 6.0 } } },
-    },
+const material_road_day = schema.Material{
+    .id = material_id_road_day,
+    .name = "road_day",
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.3, .y = 0.3, .z = 0.3, .w = 1.0 },
 };
+
+// Night road: darker surface with slight emissive for road markings.
+const material_road_night = schema.Material{
+    .id = material_id_road_night,
+    .name = "road_night",
+    .shading_model = .lambertian,
+    .base_color_factor = .{ .x = 0.1, .y = 0.1, .z = 0.1, .w = 1.0 },
+    .emissive_factor = .{ .x = 0.02, .y = 0.02, .z = 0.02 },
+};
+
+// --- Features ---
 
 pub const features_list = &[_]schema.Feature{
-    .{ .feature_id = 1, .name = "type", .value = .{ .string = "tree" } },
-    .{ .feature_id = 2, .name = "type", .value = .{ .string = "road" } },
+    .{
+        .id = 1,
+        .properties = &[_]schema.FeatureProperty{
+            .{ .name = "type", .value = .{ .string = "tree" } },
+        },
+    },
+    .{
+        .id = 2,
+        .properties = &[_]schema.FeatureProperty{
+            .{ .name = "type", .value = .{ .string = "road" } },
+            .{ .name = "road_class", .value = .{ .string = "primary" } },
+        },
+    },
 };
 
+// --- Tile ---
+
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .features = features_list,
-    .semantics = schema.TileSemantics{
-        .vertex_attribute_semantics = &[_]schema.VertexAttributeSemanticBinding{
-            .{ .primitive_id = primitive_id_road, .attribute_id = 1, .semantic = .tangent },
-        },
-        .texture_semantics = &[_]schema.TextureSemanticBinding{},
-        .material_attribute_semantics = &[_]schema.MaterialAttributeSemanticBinding{},
+    .extent = 4096,
+    .materials = &[_]schema.Material{
+        material_trunk_day,
+        material_canopy_day,
+        material_road_day,
+        material_road_night,
     },
-    .materials = &[_]schema.Material{ material_trunk, material_canopy, material_road },
     .primitives = &[_]schema.Primitive3D{ primitive_trunk, primitive_canopy, primitive_road },
-    .objects = &[_]schema.Object3D{ object_tree, object_tree_lod1, object_roads },
-    .scene = &[_]schema.SceneItem{
-        .{ .lod_group = schema.LodGroupInstance{
-            .group_to_tile = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 512.0, .y = 768.0, .z = 0.0 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
-            } },
-            .variants = &[_]schema.LodVariant{
-                .{ .object_id = object_id_tree, .rank = 0 },
-                .{ .object_id = object_id_tree_lod1, .rank = 1 },
+    .objects = &[_]schema.Object3D{ object_tree, object_roads },
+    // Road primitive declares material_id_road_night in theme_material_ids; a style sheet
+    // can select it for a night appearance. Trees have no theme alternates.
+    .features = features_list,
+    .scene = &[_]schema.ObjectInstance{
+        // Tree at (512, 768, 0) with feature_id 1.
+        .{
+            .object_id = object_id_tree,
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 512, 768, 0, 1 },
             },
-            .default_variant_rank = 0,
             .feature_id = 1,
-        } },
-        .{ .object = schema.ObjectInstance{
+        },
+        // Tree at (1024, 512, 0).
+        .{
             .object_id = object_id_tree,
-            .object_to_tile = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 1024.0, .y = 512.0, .z = 0.0 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
-            } },
-            .feature_id = null,
-        } },
-        .{ .object = schema.ObjectInstance{
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 1024, 512, 0, 1 },
+            },
+        },
+        // Tree at (2048, 2048, 0).
+        .{
             .object_id = object_id_tree,
-            .object_to_tile = schema.Transform{ .pose_f64 = .{
-                .location = .{ .x = 2048.0, .y = 2048.0, .z = 0.0 },
-                .orientation = .{ .euler = .{ .roll = 0.0, .pitch = 0.0, .yaw = 0.0 } },
-            } },
-            .feature_id = null,
-        } },
-        .{ .object = schema.ObjectInstance{
+            .object_to_tile = schema.Mat4x4f32{
+                .{ 1, 0, 0, 0 },
+                .{ 0, 1, 0, 0 },
+                .{ 0, 0, 1, 0 },
+                .{ 2048, 2048, 0, 1 },
+            },
+        },
+        // Roads with feature_id 2.
+        .{
             .object_id = object_id_roads,
-            .object_to_tile = null,
             .feature_id = 2,
-        } },
+        },
     },
 };
 

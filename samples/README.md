@@ -1,22 +1,23 @@
 # MLT 3D schema samples
 
-Small, focused examples that demonstrate features of the 3D tile schema (`format_3d_schema.zig`). Each sample compiles with Zig and exposes a `tile: schema.Tile3D` (and optionally other exports). Buffer data is placeholder (empty); the schema describes structure and semantics only.
+Small, focused examples that demonstrate features of the 3D tile schema (`format_3d_schema.zig`). Each sample compiles with Zig and exposes a `tile: schema.Tile3D`. Buffer data is placeholder (empty); the schema describes structure and semantics only.
 
 | Sample | Demonstrates |
 |--------|--------------|
-| **minimal.zig** | Bare structure: one primitive, one object, one instance. No semantics or features. |
-| **roads_tangent.zig** | 3D roads: line-strip with **tangent** semantic. Comment explains that a style sheet can add width and thickness (like MVT line-width). |
-| **instancing.zig** | **Instancing**: one simple shape (box) placed multiple times with different `object_to_tile` transforms. |
-| **features.zig** | **Objects with different feature properties**: building (type, height_m) and road (type, road_class, surface). Styling tools can use these. |
-| **scene_roads_trees.zig** | **Complex scene**: roads (tangent semantic) + trees (trunk + canopy, instanced; one LOD group). Features for tree and road. |
-| **lod.zig** | **LOD**: one LodGroupInstance with two variants (detailed vs simple), geometric_error on tile and variant. |
-| **materials_pbr.zig** | **PBR semantics**: texture and material-attribute bindings (base color, metallic, roughness, normal, texcoord). |
-| **bounding_volumes.zig** | **Bounding volumes** (box on primitive, sphere on object) and **geometric_error** on tile. |
-| **points.zig** | **Point topology**: points primitive with color_0 semantic. |
-| **encoding.zig** | **Buffer encoding**: Scale on positions (i16, factor), delta encoding (from_first), normalized vertex attributes (e.g. normals, UVs). |
-| **primitive_restart.zig** | **Triangle strip with primitive restart**: IndexBuffer.primitive_restart = true for multiple strips in one buffer. |
-| **strided_positions.zig** | **Strided positions**: positions buffer with element_stride (e.g. padded or interleaved layout). |
-| **object_primitive_transforms.zig** | **Object with primitive transforms**: multiple primitives per object with non-identity primitive_to_object (matrix and pose). |
+| **minimal.zig** | Bare structure: one primitive, one object, one instance. No features or textures. |
+| **roads_tangent.zig** | 3D roads: `line_strip` with **normals** and **tangents** for flat ribbon extrusion. Primitive restart batches multiple road segments into one buffer. UV.x stores distance along the road. |
+| **instancing.zig** | **Instancing**: one box object placed at three positions with different `object_to_tile` matrices (translation and rotation). |
+| **features.zig** | **Feature properties**: building and road objects with typed name-value properties. Feature objects hold properties directly (no flat list scanning). |
+| **scene_roads_trees.zig** | **Complex scene**: roads (tangent/normal) + trees (trunk + canopy), features, and day/night **themes** via per-primitive `theme_material_ids`. |
+| **materials_pbr.zig** | **PBR material**: `base_color_texture`, `orm_texture` (R=Occlusion, G=Roughness, B=Metallic), `normal_map_texture`, scalar factors. |
+| **bounding_volumes.zig** | **Bounding volumes**: box on primitive, sphere on object, pre-transformed box on instance for efficient tile-space culling. |
+| **points.zig** | **Point topology**: points primitive with per-vertex `colors` (vec4u8). |
+| **encoding.zig** | **Fixed vertex types and z_scale**: vec3i32 positions, vec3f32 normals, vec2u16 UVs. `z_scale` converts integer Z to meters. |
+| **primitive_restart.zig** | **Primitive restart**: `triangle_strip` with `primitive_restart = true`; 0xFFFFFFFF separates strips in one index buffer. |
+| **themes.zig** | **Themes**: day/night material switching via per-primitive `theme_material_ids`. The style sheet selects a material from the list; the default is used when no override is active. |
+| **themes_mixed_textures.zig** | **Themes with mixed textures**: default material is untextured (flat color), theme alternate uses a `base_color_texture`. UVs are present in the vertex buffer even though the default material doesn't use them, so the textured theme renders correctly when selected. |
+| **object_primitive_transforms.zig** | **Multi-primitive object**: tree with trunk and canopy as separate primitives, each with a different material, instanced at three positions. |
+| **lod.zig** | **Building variants**: detailed and simple building placed as separate instances. Note on zoom-level tiling as the primary LOD mechanism. |
 
 ## Build
 
