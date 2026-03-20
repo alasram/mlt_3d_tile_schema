@@ -53,7 +53,7 @@ const material = schema.Material{
     },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
     // z_scale: 1 extent unit = 0.001 meters (millimeter precision for Z).
     // A building vertex at Z=15000 is 15.0 meters tall.

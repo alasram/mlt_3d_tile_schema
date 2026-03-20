@@ -55,8 +55,9 @@ const material_canopy = schema.Material{
     .base_color_factor = .{ .x = 0.1, .y = 0.5, .z = 0.1, .w = 1.0 },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{ material_trunk, material_canopy },
     .primitives = &[_]schema.Primitive3D{ primitive_trunk, primitive_canopy },
     .objects = &[_]schema.Object3D{object_tree},

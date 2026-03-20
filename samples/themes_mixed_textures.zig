@@ -61,8 +61,9 @@ const material_satellite = schema.Material{
     },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{ material_default, material_satellite },
     .primitives = &[_]schema.Primitive3D{primitive},
     .objects = &[_]schema.Object3D{object},

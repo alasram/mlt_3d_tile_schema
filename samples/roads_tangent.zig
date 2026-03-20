@@ -6,9 +6,9 @@
 //! extrusion) to control the road cross-section, similar to how MVT styles specify
 //! line width for 2D roads.
 //!
-//! For line_strip topology, normals are required. Tangents are optional: without them the renderer
-//! can still draw the line as a tube, but cannot extrude it as a flat ribbon (e.g. road markings).
-//! This sample includes tangents to demonstrate full ribbon extrusion.
+//! For line_strip topology, both normals and tangents are optional. Without either, the renderer
+//! may draw a basic stroke or compute an extrusion normal. With normals, tube extrusion is
+//! possible. This sample provides both normals and tangents for full ribbon extrusion.
 //! UV.x can represent distance along the road for road markings or dashed line textures.
 
 const schema = @import("format_3d_schema");
@@ -17,7 +17,7 @@ const primitive_id_road: schema.PrimitiveId = 1;
 const object_id_roads: schema.ObjectId = 1;
 const material_id_road: schema.MaterialId = 1;
 
-// line_strip: normals required, tangents included here for flat ribbon extrusion.
+// line_strip: normals and tangents both provided here for full ribbon extrusion.
 // primitive_restart = true allows multiple disconnected road segments in one buffer.
 const primitive_road = schema.Primitive3D{
     .id = primitive_id_road,
@@ -31,7 +31,7 @@ const primitive_road = schema.Primitive3D{
         },
         .vertex_count = 0,
         .positions = &[_]u8{},
-        // Normal: up direction (Z-up) for road mesh extrusion.
+        // Normal: up direction (Z-up) for road mesh extrusion (enables tube extrusion).
         .normals = &[_]u8{},
         // Tangent: along-road direction for road width extrusion.
         .tangents = &[_]u8{},
@@ -52,8 +52,9 @@ const material_road = schema.Material{
     .base_color_factor = .{ .x = 0.3, .y = 0.3, .z = 0.3, .w = 1.0 },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{material_road},
     .primitives = &[_]schema.Primitive3D{primitive_road},
     .objects = &[_]schema.Object3D{object_roads},

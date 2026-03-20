@@ -43,9 +43,9 @@ const primitive_canopy = schema.Primitive3D{
     },
 };
 
-// Road: line_strip with normals and tangents required. Primitive restart allows
-// multiple road segments in one buffer. Night material listed in theme_material_ids
-// for style sheet selection.
+// Road: line_strip with normals and tangents for ribbon extrusion (both optional).
+// Primitive restart allows multiple road segments in one buffer. Night material
+// listed in theme_material_ids for style sheet selection.
 const primitive_road = schema.Primitive3D{
     .id = primitive_id_road,
     .topology = .line_strip,
@@ -130,8 +130,9 @@ pub const features_list = &[_]schema.Feature{
 
 // --- Tile ---
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{
         material_trunk_day,
         material_canopy_day,

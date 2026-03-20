@@ -24,7 +24,7 @@ const primitive_building = schema.Primitive3D{
     },
 };
 
-// Road: line_strip requires normals and tangents.
+// Road: line_strip with normals and tangents for ribbon extrusion (both optional).
 const primitive_road = schema.Primitive3D{
     .id = primitive_id_road,
     .topology = .line_strip,
@@ -73,8 +73,9 @@ pub const features_list = &[_]schema.Feature{
     },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{ primitive_building, primitive_road },
     .objects = &[_]schema.Object3D{ object_building, object_road },
