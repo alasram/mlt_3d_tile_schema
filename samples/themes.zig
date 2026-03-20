@@ -3,9 +3,8 @@
 //! Each Primitive3D declares a default material_id and an optional list of
 //! theme_material_ids. The default material is applied when no style sheet override
 //! is active. A style sheet selects an alternate material by picking any ID from
-//! theme_material_ids (e.g. choosing "night" appearance by selecting material_id_night).
-//! This allows scene-wide appearance switching without duplicating geometry or adding
-//! a separate theme/override structure at the tile level.
+//! theme_material_ids (e.g. choosing a "night" appearance by selecting material_id_night).
+//! This allows scene-wide appearance switching without duplicating geometry.
 
 const schema = @import("format_3d_schema");
 
@@ -53,7 +52,6 @@ const material_night = schema.Material{
 
 pub const tile = schema.Tile3D{
     .extent = 4096,
-    // Both materials are in the global pool; the primitive references them directly.
     .materials = &[_]schema.Material{ material_day, material_night },
     .primitives = &[_]schema.Primitive3D{primitive},
     .objects = &[_]schema.Object3D{object},

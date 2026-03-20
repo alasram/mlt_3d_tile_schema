@@ -1,5 +1,8 @@
-//! Point primitives: topology = points.
-//! Useful for point clouds, markers, or vegetation points when not using full mesh LOD.
+//! Point primitives: topology = points with per-vertex colors.
+//!
+//! Useful for point clouds, markers, or vegetation points.
+//! Colors are vec4u8 (RGBA); values in [0, 255] are divided by 255 in shading formulas.
+//! UV is valid for point topology (e.g. for sprite atlas coordinates).
 
 const schema = @import("format_3d_schema");
 
@@ -9,53 +12,35 @@ const material_id: schema.MaterialId = 1;
 
 const primitive_points = schema.Primitive3D{
     .id = primitive_id,
-    .name = "points",
     .topology = .points,
     .material_id = material_id,
     .vertex_buffer = .{
-        .indices = null,
-        .positions = .{
-            .position_type = .{ .shape = .vec3, .scalar = .f32 },
-            .encoding = .none,
-            .element_count = 0,
-            .data = &[_]u8{},
-        },
-        .attributes = &[_]schema.VertexAttribute{
-            .{ .id = 1, .name = null, .value_type = .{ .shape = .vec4, .scalar = .u8, .normalization = .normalized_unsigned }, .encoding = .none, .scale = null, .element_count = 0, .data = &[_]u8{} },
-        },
+        .vertex_count = 0,
+        .positions = &[_]u8{},
+        // Per-vertex RGBA colors. Values divided by 255 in shading.
+        .colors = &[_]u8{},
     },
 };
 
 const object = schema.Object3D{
     .id = object_id,
     .name = "point_cloud",
-    .primitive_instances = &[_]schema.PrimitiveInstance{
-        .{ .primitive_id = primitive_id, .primitive_to_object = null },
-    },
+    .primitive_ids = &[_]schema.PrimitiveId{primitive_id},
 };
 
 const material = schema.Material{
     .id = material_id,
-    .name = "default",
-    .textures = &[_]schema.Texture{},
-    .attributes = &[_]schema.MaterialAttribute{},
+    .shading_model = .lambertian,
 };
 
 pub const tile = schema.Tile3D{
-    .extents = .{ .x = 4096, .y = 4096, .z = 256 },
-    .features = &[_]schema.Feature{},
-    .semantics = schema.TileSemantics{
-        .vertex_attribute_semantics = &[_]schema.VertexAttributeSemanticBinding{
-            .{ .primitive_id = primitive_id, .attribute_id = 1, .semantic = .color_0 },
-        },
-        .texture_semantics = &[_]schema.TextureSemanticBinding{},
-        .material_attribute_semantics = &[_]schema.MaterialAttributeSemanticBinding{},
-    },
+    .extent = 4096,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{primitive_points},
     .objects = &[_]schema.Object3D{object},
-    .scene = &[_]schema.SceneItem{
-        .{ .object = schema.ObjectInstance{ .object_id = object_id, .object_to_tile = null, .feature_id = null } },
+    .features = &[_]schema.Feature{},
+    .scene = &[_]schema.ObjectInstance{
+        .{ .object_id = object_id },
     },
 };
 

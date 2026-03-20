@@ -20,7 +20,8 @@ pub fn build(b: *std.Build) void {
         "points",
         "encoding",
         "primitive_restart",
-        "strided_positions",
+        "themes",
+        "themes_mixed_textures",
         "object_primitive_transforms",
     };
 

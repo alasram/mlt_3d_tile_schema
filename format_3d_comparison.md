@@ -13,10 +13,10 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 | **Primary focus** | Single-tile 3D payload for MLT | Streaming 3D geospatial tiles | Scene layers (buildings, mesh, point clouds) | Service API for 3D delivery | 3D city model data model | Point clouds only |
 | **Tile structure** | One tile per payload (zoom/x/y, MVT-aligned) | Tileset + tile tree, spatial hierarchy | Node tree, level-of-detail | Service defines delivery | N/A (full dataset or region) | Single file, internal octree |
 | **Geometry** | Primitives + vertex buffers (glTF-like) | b3dm, i3dm, pnts, glTF, composite | Geometry per node, mesh/point | Format-agnostic | Boundary representation, surfaces | LAS/LAZ points, octree |
-| **LOD** | Intra-tile LOD groups + geometric error | Per-tile refinement, geometric error | Node tree LOD | By service | N/A or application-defined | Octree hierarchy |
+| **LOD** | Zoom-level tiling (external); no intra-tile LOD | Per-tile refinement, geometric error | Node tree LOD | By service | N/A or application-defined | Octree hierarchy |
 | **Features / styling** | First-class features + feature_id | Batch table, feature IDs | Attributes per feature | By content format | CityGML semantics, CityJSON attrs | Point attributes (LAS) |
 | **CRS / anchoring** | Not defined (local tile coords, MVT structure) | WGS 84, bounding volumes | Geographic | Service / content | Often CRS in metadata | LAS header (coordinates) |
-| **Materials** | Generic + optional PBR semantics (glTF 2.0) | glTF materials, legacy in b3dm | Per-layer / per-node | By content | Appearance (textures, materials) | N/A (point color/intensity) |
+| **Materials** | Fixed model: base_color / ORM / normal_map / emissive; Lambertian or PBR shading | glTF materials, legacy in b3dm | Per-layer / per-node | By content | Appearance (textures, materials) | N/A (point color/intensity) |
 | **Standardization** | Draft, MLT community | Cesium/OGC 3D Tiles | OGC I3S | OGC 3DPS | OGC CityGML, OGC CityJSON | Community (COPC 1.0) |
 
 ---
@@ -29,7 +29,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Tile model**
   - **3D Tiles:** A *tileset* (e.g. `tileset.json`) defines a tree of tiles. Each tile has a bounding volume, geometric error, and content (e.g. glTF, b3dm, i3dm, pnts, or composite). Tiles are loaded based on view and refinement. The **tile hierarchy** (parent/child, refinement) is part of the format.
-  - **MLT 3D:** A *single tile* is one payload (like one MVT tile). The schema does **not** define a tile hierarchy; the map is composed of many such tiles requested by zoom/x/y (as with MVT). LOD is expressed only *within* the tile via `LodGroupInstance` and optional `geometric_error`.
+  - **MLT 3D:** A *single tile* is one payload (like one MVT tile). The schema does **not** define a tile hierarchy; the map is composed of many such tiles requested by zoom/x/y (as with MVT). Zoom-level tiling is the primary LOD mechanism; intra-tile LOD is deferred to a future extension.
 
 - **Content formats**
   - **3D Tiles:** Supports multiple payload types: Batched 3D Model (b3dm, deprecated in 1.1), Instanced 3D Model (i3dm), Point Cloud (pnts), and **glTF** (e.g. 3DTILES_content_gltf). Composite tiles reference other tiles.
@@ -37,7 +37,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Features**
   - **3D Tiles:** Batch table (or metadata) with feature IDs; instances or batches map to feature properties.
-  - **MLT 3D:** Explicit `features` array and `feature_id` on object/LOD instances; styling-oriented properties (name–value), similar in spirit to MVT feature properties.
+  - **MLT 3D:** Explicit `features` array and `feature_id` on object instances; styling-oriented properties (name–value), similar in spirit to MVT feature properties.
 
 - **Use case**
   - **3D Tiles:** Global or large-area 3D streaming (e.g. Cesium), view-dependent refinement, multiple formats in one ecosystem.
@@ -45,8 +45,8 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 ### Conversion
 
-- **3D Tiles → MLT 3D:** Per tile, extract content (e.g. one glTF or one b3dm's glTF). Map tile bounds and geometric error to `extents` and `geometric_error`. Flatten the tile's scene into objects and a flat scene list; map batch/feature table to `features` and `feature_id`.
-- **MLT 3D → 3D Tiles:** Emit a tileset with one (or more) tiles; each MLT 3D tile becomes one 3D Tiles tile. Content can be glTF or a 3D Tiles payload that wraps the same geometry. Geometric error and bounding volumes map across.
+- **3D Tiles → MLT 3D:** Per tile, extract content (e.g. one glTF or one b3dm's glTF). Map tile bounds to the `extent`. Flatten the tile's scene into objects and a flat scene list; map batch/feature table to `features` and `feature_id`.
+- **MLT 3D → 3D Tiles:** Emit a tileset with one (or more) tiles; each MLT 3D tile becomes one 3D Tiles tile. Content can be glTF or a 3D Tiles payload that wraps the same geometry. Bounding volumes map across.
 
 ---
 
@@ -58,11 +58,11 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Structure**
   - **I3S:** Node tree; each node can have geometry, textures, and attributes. Layer type (e.g. 3D Object, Integrated Mesh, Point) determines schema. SLPK (Scene Layer Package) for file-based distribution.
-  - **MLT 3D:** Flat scene list (object instances and LOD group instances); no node tree. Objects reference primitives and materials; LOD is explicit via `LodGroupInstance` / `LodVariant`.
+  - **MLT 3D:** Flat scene list of object instances; no node tree. Objects reference primitives and materials from a global pool. Zoom-level tiling handles LOD externally; no intra-tile LOD groups.
 
 - **Geometry**
   - **I3S:** Geometry and attributes are layer-type specific (e.g. mesh with UVs, normals; point with position, color). Often optimized for Esri runtimes.
-  - **MLT 3D:** Generic primitives (positions + optional index buffer + vertex attributes), glTF 2.0 topology and semantics. Optional PBR via `TileSemantics`.
+  - **MLT 3D:** Fixed vertex types (vec3i32 positions, vec2u16 UVs, vec3f32 normals, vec4f32 tangents, vec4u8 colors), glTF 2.0 topology. Fixed material model: base_color, ORM, normal_map, emissive texture slots + Lambertian or PBR shading.
 
 - **Features / attributes**
   - **I3S:** Per-node or per-feature attributes; used for popups, filtering, and styling in ArcGIS.
@@ -70,12 +70,12 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Tile / LOD**
   - **I3S:** Hierarchical nodes; levels of detail and spatial indexing are part of the layer structure (the format describes the hierarchy).
-  - **MLT 3D:** One tile per payload (MVT-style); the **tile hierarchy** (many tiles making up the map) is outside the schema. LOD inside the tile via LOD groups and geometric error only.
+  - **MLT 3D:** One tile per payload (MVT-style); the **tile hierarchy** (many tiles making up the map) is outside the schema. Zoom-level tiling is the primary LOD mechanism; no intra-tile LOD.
 
 ### Conversion
 
-- **I3S → MLT 3D:** For a given I3S node (or set of nodes), export geometry as primitives and materials. Map node attributes to `features` and attach via `feature_id`. Flatten node hierarchy into object instances and, if needed, LOD group variants.
-- **MLT 3D → I3S:** One MLT 3D tile could become one or more I3S nodes; object instances become nodes; LOD variants map to child nodes or levels. I3S layer type and attribute schema would need to be chosen (e.g. 3D Object).
+- **I3S → MLT 3D:** For a given I3S node (or set of nodes), export geometry as primitives and materials. Map node attributes to `features` and attach via `feature_id`. Flatten node hierarchy into object instances.
+- **MLT 3D → I3S:** One MLT 3D tile could become one or more I3S nodes; object instances become nodes. I3S layer type and attribute schema would need to be chosen (e.g. 3D Object).
 
 ---
 
@@ -121,7 +121,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Styling**
   - **CityGML / CityJSON:** Thematic and semantic attributes drive styling in applications; CityJSON has optional appearance.
-  - **MLT 3D:** Styling via **features** (name–value properties) and optional PBR semantics; styling tools can use feature properties like in MVT.
+  - **MLT 3D:** Styling via **features** (name–value properties); theme appearance switching via per-primitive `theme_material_ids` selectable by a style sheet. Styling tools can use feature properties like in MVT.
 
 ### Conversion
 
@@ -138,7 +138,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Content type**
   - **COPC:** **Point clouds only** (LAS Point Data Record Formats 6, 7, or 8). Octree inside one file; VLRs for hierarchy and metadata.
-  - **MLT 3D:** Meshes, lines, points. Primitives can be points (`Topology.points`), but the schema also supports triangles, lines, and LOD; not specialized for point clouds.
+  - **MLT 3D:** Meshes, lines, points. Primitives can be points (`Topology.points`), but the schema also supports triangles and lines; not specialized for point clouds.
 
 - **Organization**
   - **COPC:** One file, octree, range requests for subregions. No zoom/x/y tile grid in the format.
@@ -161,7 +161,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 - **Relationship:** MLT 3D is designed to **coexist with MVT** in MLT. Same tile addressing (zoom/x/y); MVT for 2D vector layers, MLT 3D for 3D tile payloads. Feature properties and styling are conceptually aligned (feature_id, name–value properties).
 - **Coordinate units:** Local tile coordinates use **MVT’s integer extent units** for X/Y (same tile grid space as 2D geometry, e.g. 0–4096 range semantics). **Z uses the same units** as X/Y so extrusions align with 2D.
-- **Alignment:** The renderer must put MVT and 3D in the **same space**—typically scale 3D so horizontal extents match the MVT layer. If `TileExtents` match the MVT extent, **no scaling** is needed.
+- **Alignment:** The renderer must put MVT and 3D in the **same space**—typically scale 3D so horizontal extents match the MVT layer. If `extent` matches the MVT extent, **no scaling** is needed.
 
 ### KML / Collada (COLLADA)
 
@@ -170,7 +170,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 ### glTF 2.0
 
-- **Relationship:** MLT 3D **reuses glTF 2.0** conventions (matrices, endianness, angles, coordinate system, topology, index types). Optional PBR semantics allow rendering like a glTF 2.0 renderer. Difference: MLT 3D is one-tile, flat scene, features for styling; glTF is one asset, optional scene graph, no built-in "feature" or tile semantics.
+- **Relationship:** MLT 3D **reuses glTF 2.0** conventions (matrices, endianness, angles, coordinate system, topology, index types). The fixed material model (base_color, ORM, normal_map, emissive) and PBR shading mode are aligned with glTF 2.0 metallic-roughness. Difference: MLT 3D is one-tile, flat scene, features for styling, per-primitive theme material lists for appearance switching; glTF is one asset, optional scene graph, no built-in "feature" or tile addressing.
 
 ---
 
@@ -178,11 +178,11 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 | Format | Best suited for | MLT 3D relationship |
 |--------|------------------|----------------------|
-| **3D Tiles** | Global 3D streaming, multi-format tileset | Same tile + LOD ideas; MLT 3D is one-tile, MVT-aligned; content can be converted. |
+| **3D Tiles** | Global 3D streaming, multi-format tileset | Same tile-based ideas; MLT 3D is one-tile, MVT-aligned, no intra-tile LOD; content can be converted. |
 | **I3S** | Esri scene layers, node-tree LOD | Different structure; MLT 3D is flat and tile-scoped; conversion via flattening. |
 | **3DPS** | Service API for 3D delivery | MLT 3D can be a payload format for a 3DPS service. |
 | **CityGML/CityJSON** | 3D city semantics and geometry | MLT 3D can be a tiled, renderable output; conversion from city models is practical. |
 | **COPC** | Point clouds, cloud-friendly access | MLT 3D can represent points in a tile; COPC can be a source for point tiles. |
-| **glTF 2.0** | Single 3D asset, PBR | MLT 3D aligns with glTF 2.0 for geometry and PBR; adds tile, features, LOD. |
+| **glTF 2.0** | Single 3D asset, PBR | MLT 3D aligns with glTF 2.0 for geometry and material conventions; adds tile addressing, features, and per-primitive theme material lists. |
 
 The MLT 3D schema is **simpler** than 3D Tiles (no tileset tree, one payload type) and **more map-oriented** than glTF (tile, features, styling). It fits a stack where 3D tiles are served like MVT (zoom/x/y) and consumed by a map renderer (e.g. MapLibre) with optional PBR and feature-based styling.
