@@ -52,8 +52,9 @@ const material = schema.Material{
     .shading_model = .lambertian,
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{ primitive_detailed, primitive_simple },
     .objects = &[_]schema.Object3D{ object_detailed, object_simple },

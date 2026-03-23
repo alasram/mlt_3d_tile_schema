@@ -170,7 +170,7 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 
 ### glTF 2.0
 
-- **Relationship:** MLT 3D **reuses glTF 2.0** conventions (matrices, endianness, angles, coordinate system, topology, index types). The fixed material model (base_color, ORM, normal_map, emissive) and PBR shading mode are aligned with glTF 2.0 metallic-roughness. Difference: MLT 3D is one-tile, flat scene, features for styling, per-primitive theme material lists for appearance switching; glTF is one asset, optional scene graph, no built-in "feature" or tile addressing.
+- **Relationship:** MLT 3D is inspired by glTF 2.0 in its focus on renderer-friendly primitives and a small, PBR-capable material model (base_color, ORM, normal_map, emissive). Difference: MLT 3D is one-tile, flat scene, features for styling, per-primitive theme material lists for appearance switching; glTF is one asset, optional scene graph, no built-in "feature" or tile addressing.
 
 ---
 
@@ -183,6 +183,6 @@ This document compares the **MLT 3D tile schema** (draft), as defined in `format
 | **3DPS** | Service API for 3D delivery | MLT 3D can be a payload format for a 3DPS service. |
 | **CityGML/CityJSON** | 3D city semantics and geometry | MLT 3D can be a tiled, renderable output; conversion from city models is practical. |
 | **COPC** | Point clouds, cloud-friendly access | MLT 3D can represent points in a tile; COPC can be a source for point tiles. |
-| **glTF 2.0** | Single 3D asset, PBR | MLT 3D aligns with glTF 2.0 for geometry and material conventions; adds tile addressing, features, and per-primitive theme material lists. |
+| **glTF 2.0** | Single 3D asset, PBR | MLT 3D is glTF-adjacent (renderer-friendly primitives and PBR-style materials), but is tile-based and adds feature styling and per-primitive theme material selection. |
 
 The MLT 3D schema is **simpler** than 3D Tiles (no tileset tree, one payload type) and **more map-oriented** than glTF (tile, features, styling). It fits a stack where 3D tiles are served like MVT (zoom/x/y) and consumed by a map renderer (e.g. MapLibre) with optional PBR and feature-based styling.

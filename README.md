@@ -23,7 +23,9 @@ This repo focuses on the **content schema of a single tile**.
 
 - **MVT alignment**
   - Tiles are addressed by zoom/x/y externally (same map tile addressing as MVT).
-  - A single integer `extent` (like MVT) defines the coordinate range for X and Y. Z uses the same unit; an optional `z_scale` converts Z to meters.
+  - A single integer `extent` (like MVT) defines the coordinate range for X and Y. Z uses the same unit.
+  - `extent` does not need to match an accompanying MVT layer's extent; the renderer applies scaling so 2D and 3D content share the same space.
+  - `z_scale` converts integer Z values to meters.
   - The coordinate system is left-handed with Z-up: X right (East), Y down (South), Z up.
 
 - **Flat scene**
@@ -31,6 +33,7 @@ This repo focuses on the **content schema of a single tile**.
 
 - **Fixed vertex types**
   - Positions: `vec3i32`. UVs: `vec2u16`. Normals: `vec3f32`. Tangents: `vec4f32`. Colors: `vec4u8`.
+  - All vertex attributes are optional except positions. For line topology, normals and tangents are also optional: without them the renderer draws a stroke; with normals, tube extrusion is possible; with both, flat ribbon extrusion (e.g. road markings) is possible.
   - Data is stored as-is. No delta encoding. Binary compression is the encoding layer's responsibility.
 
 - **Fixed material model**
@@ -50,7 +53,7 @@ This repo focuses on the **content schema of a single tile**.
 - `format_3d_comparison.md`
   - Comparison of this schema with other 3D geospatial formats (3D Tiles, I3S, CityJSON, COPC, glTF, etc.).
 - `samples/`
-  - Small Zig programs that construct example `schema.Tile3D` values demonstrating specific features.
+  - Small Zig programs that construct example `schema.MLT3DScene` values demonstrating specific features.
   - See `samples/README.md` for a table of included samples.
 - `build.zig`
   - Zig build file that builds all samples.
@@ -59,9 +62,9 @@ This repo focuses on the **content schema of a single tile**.
 
 At a high level (see `format_3d_schema.zig`):
 
-- A `Tile3D` contains:
+- A `MLT3DScene` contains:
   - `extent`: single integer defining the coordinate range (like MVT extent).
-  - Optional `z_scale`: converts integer Z values to meters.
+  - `z_scale`: converts integer Z values to meters.
   - `materials`: global pool referenced by ID from primitives.
   - `primitives`, `objects`: geometry and groupings. Each primitive carries a default material and optional alternate theme materials.
   - `features`: per-object name–value properties for styling.

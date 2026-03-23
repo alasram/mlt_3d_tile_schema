@@ -51,8 +51,9 @@ const material_night = schema.Material{
     .emissive_factor = .{ .x = 0.05, .y = 0.05, .z = 0.1 },
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     // Both materials are in the global pool; the primitive references them directly.
     .materials = &[_]schema.Material{ material_day, material_night },
     .primitives = &[_]schema.Primitive3D{primitive},

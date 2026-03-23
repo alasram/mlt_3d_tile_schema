@@ -23,13 +23,13 @@
 //!
 //! The tile origin is at the top-left corner of the tile at ground level (Z = 0), consistent
 //! with MVT geometry coordinates. Integer positions use the same extent unit as MVT for X and Y.
-//! Z uses the same extent unit; an optional `z_scale` on `Tile3D` converts Z to meters.
+//! Z uses the same extent unit; `z_scale` on `MLT3DScene` converts Z to meters.
 //!
 //! ## Structure
 //!
-//! A `Tile3D` contains:
+//! A `MLT3DScene` contains:
 //! - `extent`: single integer defining the coordinate range (like MVT extent).
-//! - `z_scale`: optional scale factor converting integer Z values to meters.
+//! - `z_scale`: scale factor converting integer Z values to meters.
 //! - `materials`: global pool of materials referenced by ID.
 //! - `primitives`: geometry units (topology + vertex buffer + default material).
 //! - `objects`: named collections of primitive IDs placed in tile space via `ObjectInstance`.
@@ -43,12 +43,19 @@
 //! any material ID in `theme_material_ids` (or the default `material_id`) may be chosen.
 //! This allows scene-wide appearance switching (e.g. day/night) without duplicating geometry.
 //!
+//! A style sheet may select a theme material by ID directly, or by matching `Material.name`
+//! (e.g. requesting theme "night" activates the material whose `name` equals "night", provided
+//! that material's ID is present in `theme_material_ids`). This is analogous to how MVT style
+//! sheets select features by property name and value.
+//!
 //! ## Vertex attributes
 //!
 //! Every `VertexBuffer` has a fixed attribute set (all stored as raw bytes, no delta encoding):
 //! - **Positions** (required): `vec3i32` — 3D signed 32-bit integer coordinates.
 //! - **UV** (optional): `vec2u16` — texture coordinates; 0 = 0.0, 65535 = 1.0.
-//! - **Normal** (required for lines, optional otherwise): `vec3f32` — may not be unit length.
+//! - **Normal** (optional): `vec3f32` — may not be unit length. For line topology, providing
+//!   normals enables tube extrusion; without normals (or tangents) the renderer may draw the
+//!   line as a stroke or compute an arbitrary extrusion normal.
 //! - **Tangent** (optional): `vec4f32` — xyz = tangent, w = bitangent sign.
 //! - **Color** (optional): `vec4u8` — RGBA; values divided by 255 in shading formulas.
 //!
@@ -68,14 +75,15 @@
 ///
 /// **Validation**: `primitive_restart` in `IndexBuffer` is only valid for `line_strip`
 /// and `triangle_strip`.
-/// For `line_strip` and `lines`, normals are required in the vertex buffer; tangents are optional.
+///
+/// Note: `triangle_fan` is intentionally absent — it is not supported in WebGPU and can
+/// be trivially converted to a `triangles` list or `triangle_strip` before encoding.
 pub const Topology = enum(u8) {
     points = 0,
     lines = 1,
     line_strip = 2,
     triangles = 3,
     triangle_strip = 4,
-    triangle_fan = 5,
 };
 
 // ----------------------------------------------------------------------------
@@ -101,7 +109,8 @@ pub const Vec4f32 = struct { x: f32, y: f32, z: f32, w: f32 };
 /// Components are in [0, 255]; divided by 255.0 in shading formulas to produce [0.0, 1.0].
 pub const Vec4u8 = struct { r: u8, g: u8, b: u8, a: u8 };
 
-/// 4×4 column-major 32-bit float transformation matrix (OpenGL/GLSL convention).
+/// 4×4 column-major 32-bit float transformation matrix.
+/// Column-major means the outer array index selects the column; there is no row-major transposition.
 /// Storage: M[col][row] — the outer index is the column, the inner index is the row.
 /// Applied as `p' = M * p` where `p = (x, y, z, 1)` is a column vector.
 /// Translation is in the fourth column: M[3] = {tx, ty, tz, 1}.
@@ -112,13 +121,13 @@ pub const Mat4x4f32 = [4][4]f32;
 // IDs
 // ----------------------------------------------------------------------------
 
-/// Object identifier; unique within `Tile3D.objects`.
+/// Object identifier; unique within `MLT3DScene.objects`.
 pub const ObjectId = u32;
-/// Primitive identifier; unique within `Tile3D.primitives`.
+/// Primitive identifier; unique within `MLT3DScene.primitives`.
 pub const PrimitiveId = u32;
-/// Material identifier; unique within `Tile3D.materials`.
+/// Material identifier; unique within `MLT3DScene.materials`.
 pub const MaterialId = u32;
-/// Feature identifier; unique within `Tile3D.features`.
+/// Feature identifier; unique within `MLT3DScene.features`.
 pub const FeatureId = u32;
 
 /// UTF-8 encoded string.
@@ -128,7 +137,9 @@ pub const Utf8String = []const u8;
 // Bounding volumes
 // ----------------------------------------------------------------------------
 
-/// Axis-aligned bounding box in tile-local coordinates (same units as vertex positions).
+/// Axis-aligned bounding box in tile-local coordinates.
+/// Uses `Vec3f32` (float) rather than `Vec3i32` because bounding volumes may represent
+/// pre-transformed geometry (e.g. after applying a `Mat4x4f32` instance transform).
 pub const BoundingBox = struct {
     /// Minimum corner (smallest X, Y, Z).
     min: Vec3f32,
@@ -191,7 +202,7 @@ pub const Texture = struct {
 /// Alpha blending mode. Matches glTF 2.0 material.alphaMode.
 pub const AlphaMode = enum(u8) {
     /// Alpha is ignored; the primitive is fully opaque.
-    opaque_mode = 0,
+    fully_opaque = 0,
     /// Fragments with alpha below `alpha_cutoff` are discarded; others are fully opaque.
     mask = 1,
     /// Standard alpha blending using the alpha channel.
@@ -227,15 +238,20 @@ pub const ShadingModel = enum(u8) {
 ///
 /// **Normal**: if normal_map_texture is absent, the geometric normal is used.
 ///
-/// **Validation**: `id` MUST be unique within `Tile3D.materials`.
+/// **Validation**: `id` MUST be unique within `MLT3DScene.materials`.
 /// `alpha_cutoff` is only meaningful when `alpha_mode == mask`.
 /// When a texture is present but the primitive's vertex buffer has no UVs, the texture is silently ignored.
 /// UVs are allowed even when no texture is present; they are simply unused.
+/// When a texture is present in a specific slot, its `Texture.kind` MUST match that slot:
+/// - `base_color_texture.kind` MUST be `.base_color`
+/// - `orm_texture.kind` MUST be `.orm`
+/// - `normal_map_texture.kind` MUST be `.normal_map`
+/// - `emissive_texture.kind` MUST be `.emissive`
 /// Producer note: if any theme material for a primitive may use textures, include UVs in the vertex
 /// buffer even when the default material is untextured — otherwise the textured theme will be silently
 /// ignored at runtime.
 pub const Material = struct {
-    /// Unique within `Tile3D.materials`.
+    /// Unique within `MLT3DScene.materials`.
     id: MaterialId,
     /// Optional name used for theme selection. The client matches this against a requested theme name.
     name: ?Utf8String = null,
@@ -265,7 +281,7 @@ pub const Material = struct {
     emissive_factor: Vec3f32 = .{ .x = 0, .y = 0, .z = 0 },
 
     double_sided: bool = false,
-    alpha_mode: AlphaMode = .opaque_mode,
+    alpha_mode: AlphaMode = .fully_opaque,
     /// Cutoff threshold for `alpha_mode == mask`. Default: 0.5.
     alpha_cutoff: f32 = 0.5,
 };
@@ -303,9 +319,10 @@ pub const IndexBuffer = struct {
 ///
 /// **Validation**:
 /// - All present attribute buffers MUST contain exactly `vertex_count` elements.
-/// - For `line_strip` and `lines` topology, `normals` MUST be present.
-/// - For `line_strip` and `lines` topology, `tangents` are optional. Without tangents, the renderer
-///   may extrude the line as a tube but cannot extrude it as a flat ribbon (e.g. road markings).
+/// - For `line_strip` and `lines` topology, both `normals` and `tangents` are optional.
+///   Without either, the renderer may draw the line as a stroke or compute an arbitrary extrusion
+///   normal. With normals only, tube extrusion is possible. With both normals and tangents,
+///   flat ribbon extrusion (e.g. road markings) is possible.
 pub const VertexBuffer = struct {
     /// Optional index buffer. When absent, vertices are drawn in sequential order.
     indices: ?IndexBuffer = null,
@@ -320,9 +337,10 @@ pub const VertexBuffer = struct {
     /// For line topology, only U is used (distance along line); V is ignored.
     uvs: ?[]const u8 = null,
 
-    /// Normals: vec3f32. Optional for triangle/point topology; required for line topology.
+    /// Normals: vec3f32. Optional for all topology types.
     /// May not be unit length; client MUST normalize before use.
-    /// For line topology: represents the up direction for mesh extrusion.
+    /// For line topology: represents the up direction for mesh extrusion (tube or ribbon).
+    /// When absent for line topology, the renderer may compute an arbitrary extrusion normal.
     normals: ?[]const u8 = null,
 
     /// Tangents: vec4f32. Optional for all topology types.
@@ -341,19 +359,23 @@ pub const VertexBuffer = struct {
 
 /// One drawable geometry unit: topology, vertex buffer, and materials.
 ///
-/// **Validation**: `id` MUST be unique within `Tile3D.primitives`.
-/// `material_id` when present MUST refer to an entry in `Tile3D.materials`.
-/// Every entry in `theme_material_ids` MUST refer to an entry in `Tile3D.materials`.
+/// **Validation**: `id` MUST be unique within `MLT3DScene.primitives`.
+/// `material_id` when present MUST refer to an entry in `MLT3DScene.materials`.
+/// Every entry in `theme_material_ids` MUST refer to an entry in `MLT3DScene.materials`.
 pub const Primitive3D = struct {
-    /// Unique within `Tile3D.primitives`.
+    /// Unique within `MLT3DScene.primitives`.
     id: PrimitiveId,
     topology: Topology,
     /// Default material applied when the style sheet does not select an alternate.
-    /// When null, no material is applied (geometry only).
+    /// When null, the renderer uses a default base color of (255, 255, 255, 255) and zero
+    /// emissive (0, 0, 0); either flat or lambertian shading may be applied.
     material_id: ?MaterialId = null,
     /// Additional materials available for alternate themes (e.g. "night", "winter").
-    /// A style sheet may select any material ID from this list instead of the default `material_id`.
-    /// Each entry MUST refer to an entry in `Tile3D.materials`.
+    /// A style sheet may select any material ID from this list instead of the default `material_id`,
+    /// either by ID directly or by matching `Material.name` (e.g. requesting theme "night" activates
+    /// the material whose `name` equals "night", provided its ID is in this list). This is analogous
+    /// to how MVT style sheets select features by property name and value.
+    /// Each entry MUST refer to an entry in `MLT3DScene.materials`.
     theme_material_ids: []const MaterialId = &[_]MaterialId{},
     /// Optional bounding volume in primitive-local space for culling.
     bounding_volume: ?BoundingVolume = null,
@@ -362,10 +384,10 @@ pub const Primitive3D = struct {
 
 /// Named collection of primitives placed in tile space via `ObjectInstance`.
 ///
-/// **Validation**: `id` MUST be unique within `Tile3D.objects`.
-/// Every entry in `primitive_ids` MUST refer to an entry in `Tile3D.primitives`.
+/// **Validation**: `id` MUST be unique within `MLT3DScene.objects`.
+/// Every entry in `primitive_ids` MUST refer to an entry in `MLT3DScene.primitives`.
 pub const Object3D = struct {
-    /// Unique within `Tile3D.objects`.
+    /// Unique within `MLT3DScene.objects`.
     id: ObjectId,
     name: ?Utf8String = null,
     /// Optional bounding volume in object-local space for culling.
@@ -380,16 +402,16 @@ pub const Object3D = struct {
 
 /// Placement of an object into tile space.
 ///
-/// **Validation**: `object_id` MUST refer to an entry in `Tile3D.objects`.
-/// When `feature_id` is present it MUST refer to an entry in `Tile3D.features`.
+/// **Validation**: `object_id` MUST refer to an entry in `MLT3DScene.objects`.
+/// When `feature_id` is present it MUST refer to an entry in `MLT3DScene.features`.
 pub const ObjectInstance = struct {
-    /// Must refer to an entry in `Tile3D.objects`.
+    /// Must refer to an entry in `MLT3DScene.objects`.
     object_id: ObjectId,
     /// Transform from object space to tile space. When null, identity is assumed.
     object_to_tile: ?Mat4x4f32 = null,
     /// Optional bounding volume in tile space (pre-transformed, for efficient culling).
     bounding_volume: ?BoundingVolume = null,
-    /// Optional link to per-feature metadata in `Tile3D.features`.
+    /// Optional link to per-feature metadata in `MLT3DScene.features`.
     feature_id: ?FeatureId = null,
 };
 
@@ -421,9 +443,9 @@ pub const FeatureProperty = struct {
 /// A feature: an ID and its associated properties.
 /// Referenced by `ObjectInstance.feature_id`. Modeled after MVT feature properties.
 ///
-/// **Validation**: `id` MUST be unique within `Tile3D.features`.
+/// **Validation**: `id` MUST be unique within `MLT3DScene.features`.
 pub const Feature = struct {
-    /// Unique within `Tile3D.features`.
+    /// Unique within `MLT3DScene.features`.
     id: FeatureId,
     /// Named properties usable by styling tools (filters, colors, labels).
     properties: []const FeatureProperty,
@@ -448,22 +470,25 @@ pub const Feature = struct {
 /// - **UV / texture**: `uvs` and textures may be combined freely. When a texture is present but
 ///   the vertex buffer has no `uvs`, the texture is silently ignored. When `uvs` are present but
 ///   no texture is active, the UVs are unused.
-/// - **Line topology normals**: primitives with `line_strip` or `lines` topology MUST have
-///   `normals` in their vertex buffer.
-/// - **Line topology tangents**: `tangents` are optional for `line_strip`/`lines`. Without
-///   tangents, lines may be rendered as tubes but not as flat ribbons.
+/// - **Line topology attributes**: `normals` and `tangents` are both optional for `line_strip`
+///   and `lines`. Without either, the renderer draws a stroke or computes its own extrusion
+///   normal. With normals only, tube extrusion is possible. With normals and tangents, flat
+///   ribbon extrusion (e.g. road markings) is possible.
 /// - **Primitive restart**: `IndexBuffer.primitive_restart` MUST only be true for `line_strip`
 ///   and `triangle_strip` topologies.
-pub const Tile3D = struct {
+pub const MLT3DScene = struct {
+    /// Schema version. Producers MUST set this to 1. Consumers MUST reject tiles with an
+    /// unrecognized version number.
+    version: u32 = 1,
+
     /// Tile coordinate extent (single integer, like MVT).
     /// Defines the integer coordinate range for X and Y: [0, extent).
     /// Z uses the same unit. Coordinates outside this range are valid but lie outside the tile.
     extent: u32,
 
-    /// Optional Z scale factor (float32, meters per extent unit).
-    /// When present: height_in_meters = z_value * z_scale.
-    /// When absent, Z is unitless; clients derive the metric scale from zoom level and tile size.
-    z_scale: ?f32 = null,
+    /// Z scale factor (float32, meters per extent unit).
+    /// height_in_meters = z_value * z_scale.
+    z_scale: f32,
 
     /// Global material pool. Materials are defined once and referenced by ID from primitives.
     materials: []const Material,

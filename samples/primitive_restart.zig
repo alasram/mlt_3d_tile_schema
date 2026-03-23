@@ -6,6 +6,7 @@
 //! an explosion of small primitives per tile.
 //!
 //! primitive_restart is only valid for line_strip and triangle_strip topologies.
+//! triangle_fan is not part of the schema (not supported in WebGPU).
 
 const schema = @import("format_3d_schema");
 
@@ -41,8 +42,9 @@ const material = schema.Material{
     .shading_model = .lambertian,
 };
 
-pub const tile = schema.Tile3D{
+pub const tile = schema.MLT3DScene{
     .extent = 4096,
+    .z_scale = 1.0,
     .materials = &[_]schema.Material{material},
     .primitives = &[_]schema.Primitive3D{primitive},
     .objects = &[_]schema.Object3D{object},
