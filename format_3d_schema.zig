@@ -53,10 +53,10 @@
 //! Every `VertexBuffer` has a fixed attribute set (all stored as raw bytes, no delta encoding):
 //! - **Positions** (required): `vec3i32` — 3D signed 32-bit integer coordinates.
 //! - **UV** (optional): `vec2u16` — texture coordinates; 0 = 0.0, 65535 = 1.0.
-//! - **Normal** (optional): `vec3f32` — may not be unit length. For line topology, providing
-//!   normals enables tube extrusion; without normals (or tangents) the renderer may draw the
-//!   line as a stroke or compute an arbitrary extrusion normal.
-//! - **Tangent** (optional): `vec4f32` — xyz = tangent, w = bitangent sign.
+//! - **Normal** (optional): `vec3f32` — MUST be unit length (normalized by the producer).
+//!   For line topology, providing normals enables tube extrusion; without normals (or tangents)
+//!   the renderer may draw the line as a stroke or compute an arbitrary extrusion normal.
+//! - **Tangent** (optional): `vec4f32` — xyz = tangent (MUST be unit length), w = bitangent sign.
 //! - **Color** (optional): `vec4u8` — RGBA; values divided by 255 in shading formulas.
 //!
 //! ## Shading
@@ -273,8 +273,10 @@ pub const Material = struct {
 
     /// Multiplied with base color texture sample and per-vertex color. Default: (1, 1, 1, 1).
     base_color_factor: Vec4f32 = .{ .x = 1, .y = 1, .z = 1, .w = 1 },
-    /// Metallic factor. Default: 1.0.
-    metallic_factor: f32 = 1.0,
+    /// Metallic factor. Default: 0.0.
+    /// Note: glTF 2.0 defaults to 1.0, but 0.0 is a more practical default for map geometry
+    /// (most surfaces are non-metallic). Producers targeting glTF interop should set this explicitly.
+    metallic_factor: f32 = 0.0,
     /// Roughness factor. Default: 1.0.
     roughness_factor: f32 = 1.0,
     /// Emissive factor. Multiplied with emissive texture if present. Default: (0, 0, 0).
@@ -338,13 +340,13 @@ pub const VertexBuffer = struct {
     uvs: ?[]const u8 = null,
 
     /// Normals: vec3f32. Optional for all topology types.
-    /// May not be unit length; client MUST normalize before use.
+    /// MUST be unit length. Producers MUST normalize before encoding.
     /// For line topology: represents the up direction for mesh extrusion (tube or ribbon).
     /// When absent for line topology, the renderer may compute an arbitrary extrusion normal.
     normals: ?[]const u8 = null,
 
     /// Tangents: vec4f32. Optional for all topology types.
-    /// xyz = tangent vector (may not be unit length), w = bitangent sign (+1 or -1).
+    /// xyz MUST be unit length. Producers MUST normalize before encoding. w = bitangent sign (+1 or -1).
     /// For line topology: provides the along-line direction for mesh generation (e.g. road width).
     tangents: ?[]const u8 = null,
 
@@ -367,8 +369,8 @@ pub const Primitive3D = struct {
     id: PrimitiveId,
     topology: Topology,
     /// Default material applied when the style sheet does not select an alternate.
-    /// When null, the renderer uses a default base color of (255, 255, 255, 255) and zero
-    /// emissive (0, 0, 0); either flat or lambertian shading may be applied.
+    /// When null, the renderer uses a default base color of (255, 255, 255, 255), zero
+    /// emissive (0, 0, 0), and `flat` shading (no lighting).
     material_id: ?MaterialId = null,
     /// Additional materials available for alternate themes (e.g. "night", "winter").
     /// A style sheet may select any material ID from this list instead of the default `material_id`,
@@ -422,10 +424,8 @@ pub const ObjectInstance = struct {
 /// Value of a single feature property. Used by styling tools for filtering, coloring, and labeling.
 pub const FeaturePropertyValue = union(enum) {
     bool: bool,
-    /// Signed integer value.
+    /// Signed integer value. i64 covers all practical styling use cases.
     int: i64,
-    /// Unsigned integer value.
-    uint: u64,
     /// Floating point value.
     float: f64,
     /// UTF-8 string (e.g. name, category, identifier).
@@ -434,7 +434,9 @@ pub const FeaturePropertyValue = union(enum) {
 
 /// A named property belonging to a feature.
 ///
-/// **Validation**: `name` MUST be unique within the enclosing `Feature.properties` slice.
+/// Note: property names within a feature are not required to be unique (following MVT conventions).
+/// Consumers encountering duplicate names within one feature may use the last occurrence.
+/// Feature identity is determined by `Feature.id`, not by name.
 pub const FeatureProperty = struct {
     name: Utf8String,
     value: FeaturePropertyValue,
@@ -461,7 +463,7 @@ pub const Feature = struct {
 /// consumers/validators MUST reject tiles that do not:
 /// - **ID uniqueness**: `Primitive3D.id` unique within `primitives`; `Object3D.id` within
 ///   `objects`; `Material.id` within `materials`; `Feature.id` within `features`.
-///   `FeatureProperty.name` MUST be unique within each `Feature.properties` slice.
+///   `FeatureProperty.name` is NOT required to be unique within a feature (following MVT conventions).
 /// - **Referential integrity**: Every `Object3D.primitive_ids` entry MUST refer to an existing
 ///   primitive. Every `ObjectInstance.object_id` MUST refer to an existing object.
 ///   `Primitive3D.material_id` when present MUST refer to an existing material.

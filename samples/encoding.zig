@@ -6,7 +6,7 @@
 //! This allows building heights and terrain to be expressed in real-world units
 //! without changing the integer position representation.
 //!
-//! Normals are vec3f32 (3 × f32, 12 bytes per vertex), not necessarily unit length.
+//! Normals are vec3f32 (3 × f32, 12 bytes per vertex). MUST be unit length (normalized by the producer).
 //! UVs are vec2u16 (2 × u16, 4 bytes per vertex); 0 → 0.0, 65535 → 1.0.
 //! Colors are vec4u8 (4 × u8, 4 bytes per vertex); divided by 255 in shading.
 //!
@@ -33,7 +33,7 @@ const primitive = schema.Primitive3D{
         // vec2u16: 2 × u16, 4 bytes per vertex. 0 → 0.0, 65535 → 1.0.
         // Present because the material has a base_color_texture; without UVs the texture is ignored.
         .uvs = &[_]u8{},
-        // vec3f32: 3 × f32, 12 bytes per vertex. Client normalizes before use.
+        // vec3f32: 3 × f32, 12 bytes per vertex. Producer MUST normalize before encoding.
         .normals = &[_]u8{},
     },
 };
