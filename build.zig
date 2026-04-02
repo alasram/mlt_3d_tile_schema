@@ -10,19 +10,14 @@ pub fn build(b: *std.Build) void {
 
     const sample_names = &[_][]const u8{
         "minimal",
-        "roads_tangent",
         "instancing",
         "features",
-        "scene_roads_trees",
-        "materials_pbr",
-        "bounding_volumes",
         "points",
-        "encoding",
         "primitive_restart",
-        "validate_tile",
-        "themes",
-        "themes_mixed_textures",
-        "object_primitive_transforms",
+        "banking_angle",
+        "custom_attributes",
+        "asset_library",
+        "scene_roads_trees",
     };
 
     for (sample_names) |name| {
