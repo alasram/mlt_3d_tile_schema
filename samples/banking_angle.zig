@@ -11,15 +11,20 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{
+                .id = 0,
+                .vertex_count = 4,
+                .positions = &positions,
+                .banking_angles = &banking,
+            },
+        },
         .primitives = &.{
             .{
                 .id = 0,
                 .topology = .line_strip,
-                .vertex_buffer = .{
-                    .vertex_count = 4,
-                    .positions = &positions,
-                    .banking_angles = &banking,
-                },
+                .vertex_buffer_id = 0,
+                .feature_id = 0,
             },
         },
         .objects = &.{
@@ -39,7 +44,7 @@ pub fn main() void {
             },
         },
         .scene = &.{
-            .{ .object_id = 0, .feature_id = 0 },
+            .{ .object_id = 0 },
         },
     };
     _ = tile;

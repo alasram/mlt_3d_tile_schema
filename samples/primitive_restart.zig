@@ -11,18 +11,22 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{
+                .id = 0,
+                .vertex_count = 8,
+                .positions = &positions,
+            },
+        },
         .primitives = &.{
             .{
                 .id = 0,
                 .topology = .triangle_strip,
-                .vertex_buffer = .{
-                    .indices = .{
-                        .primitive_restart = true,
-                        .element_count = 9,
-                        .data = &indices,
-                    },
-                    .vertex_count = 8,
-                    .positions = &positions,
+                .vertex_buffer_id = 0,
+                .indices = .{
+                    .primitive_restart = true,
+                    .element_count = 9,
+                    .data = &indices,
                 },
             },
         },

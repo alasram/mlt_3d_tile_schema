@@ -10,14 +10,18 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{
+                .id = 0,
+                .vertex_count = 3,
+                .positions = &positions,
+            },
+        },
         .primitives = &.{
             .{
                 .id = 0,
                 .topology = .triangles,
-                .vertex_buffer = .{
-                    .vertex_count = 3,
-                    .positions = &positions,
-                },
+                .vertex_buffer_id = 0,
             },
         },
         .objects = &.{

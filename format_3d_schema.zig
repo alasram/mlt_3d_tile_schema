@@ -30,10 +30,15 @@
 //! A `MLT3DScene` contains:
 //! - `extent`: single integer defining the coordinate range (like MVT extent).
 //! - `z_scale`: scale factor converting integer Z values to meters.
-//! - `primitives`: geometry units (topology + vertex buffer).
+//! - `vertex_buffers`: pure geometry data, decoupled from any primitive or object. A
+//!   single vertex buffer may carry vertices for many features (e.g. all asphalt in the
+//!   tile) and be referenced by many primitives.
+//! - `primitives`: draw units (topology + vertex buffer reference + optional index buffer
+//!   + optional feature attribution). Each primitive is one draw call into one vertex buffer.
 //! - `imports`: import table for referencing primitives from external Asset Libraries.
-//! - `objects`: named collections of primitive IDs placed in tile space via `ObjectInstance`.
-//! - `features`: per-object properties for styling (filters, colors, labels).
+//! - `objects`: named collections of primitive IDs (correspond to MVT layers) placed in
+//!   tile space via `ObjectInstance`.
+//! - `features`: per-feature properties for styling (filters, colors, labels).
 //! - `scene`: flat list of `ObjectInstance` values.
 //!
 //! ## Styling
@@ -99,6 +104,8 @@ pub const ObjectId = u32;
 /// Primitive identifier; unique within `MLT3DScene.primitives`.
 /// Local and imported PrimitiveIds share the same namespace within a tile.
 pub const PrimitiveId = u32;
+/// Vertex buffer identifier; unique within `MLT3DScene.vertex_buffers`.
+pub const VertexBufferId = u32;
 /// Feature identifier; unique within `MLT3DScene.features`.
 pub const FeatureId = u32;
 
@@ -154,23 +161,26 @@ pub const IndexBuffer = struct {
     data: []const u8,
 };
 
-/// Fixed vertex attribute set for a primitive. All buffers store data as-is (no delta encoding).
+/// A pure geometry resource: a fixed set of vertex attribute arrays, decoupled from any
+/// primitive or object. Multiple primitives may reference the same vertex buffer and slice
+/// it via their own `indices`. All buffers store data as-is (no delta encoding).
 ///
 /// Buffer layouts (all little-endian):
 /// - positions:      vertex_count × 12 bytes (3 × i32)
 /// - banking_angles: vertex_count × 4 bytes  (1 × i32, tenths of a degree)
 ///
 /// **Validation**:
+/// - `id` MUST be unique within `MLT3DScene.vertex_buffers`.
 /// - All present attribute buffers MUST contain exactly `vertex_count` elements.
 /// - `banking_angles`: optional i32 per vertex (tenths of a degree, e.g. 450 = 45.0°).
-///   Only valid for `lines` and `line_strip` topologies; ignored or rejected on others.
+///   Only valid when consumed by primitives whose topology is `lines` or `line_strip`.
 ///   Specifies rotation around the line's tangent direction. Zero means horizontal (flat road).
 ///   Positive values tilt clockwise when looking in the forward direction.
 ///   When present, enables road ribbon creation. When absent, only a stroke can be drawn.
 /// - `custom_attributes`: each attribute array MUST contain exactly `vertex_count` elements.
 pub const VertexBuffer = struct {
-    /// Optional index buffer. When absent, vertices are drawn in sequential order.
-    indices: ?IndexBuffer = null,
+    /// Unique within `MLT3DScene.vertex_buffers`.
+    id: VertexBufferId,
 
     /// Number of vertices. All present attribute buffers must contain this many elements.
     vertex_count: u32,
@@ -179,7 +189,7 @@ pub const VertexBuffer = struct {
     positions: []const u8,
 
     /// Banking angles: i32. Optional. Tenths of a degree (e.g. 450 = 45.0°).
-    /// Only valid for `lines` and `line_strip` topologies.
+    /// Only valid when consumed by primitives with `lines` or `line_strip` topology.
     /// Specifies rotation around the line's tangent direction for road ribbons.
     banking_angles: ?[]const u8 = null,
 
@@ -215,29 +225,53 @@ pub const AssetImport = struct {
 // Primitives and objects
 // ----------------------------------------------------------------------------
 
-/// One drawable geometry unit: topology and vertex buffer.
+/// One drawable unit: topology + a reference to a vertex buffer + optional index buffer
+/// + optional feature attribution.
 ///
-/// **Validation**: `id` MUST be unique within `MLT3DScene.primitives`.
+/// Decoupling vertex storage from primitives lets producers merge geometry across many
+/// features (e.g. all asphalt in a tile as one `VertexBuffer`) and emit one `Primitive3D`
+/// per feature, each with its own `IndexBuffer` selecting the subset of vertices belonging
+/// to that feature. Producers that don't need sharing can still emit one `VertexBuffer`
+/// per primitive.
+///
+/// **Validation**:
+/// - `id` MUST be unique within `MLT3DScene.primitives`.
+/// - `vertex_buffer_id` MUST refer to an existing `VertexBuffer` in `MLT3DScene.vertex_buffers`.
+/// - When `indices` is absent, the primitive draws all vertices of the referenced vertex
+///   buffer in order (their count MUST be valid for the topology).
+/// - `feature_id`, when present, MUST refer to an entry in `MLT3DScene.features`.
 pub const Primitive3D = struct {
     /// Unique within `MLT3DScene.primitives`.
     id: PrimitiveId,
     topology: Topology,
-    vertex_buffer: VertexBuffer,
+    /// Reference to the `VertexBuffer` this primitive draws from. Multiple primitives
+    /// may share the same vertex buffer.
+    vertex_buffer_id: VertexBufferId,
+    /// Optional index buffer selecting a subset of the referenced vertex buffer.
+    /// When absent, vertices are drawn in sequential order.
+    indices: ?IndexBuffer = null,
+    /// Optional feature attribution for the geometry drawn by this primitive.
+    /// Use to attach per-feature properties (road class, building name, etc.) to a slice
+    /// of a shared vertex buffer.
+    feature_id: ?FeatureId = null,
 };
 
-/// Named collection of primitives placed in tile space via `ObjectInstance`.
-/// Object names correspond to MVT layer names — an Object3D named "buildings" is the 3D
-/// counterpart of the MVT layer named "buildings". Names are required and unique within the
-/// 3D frame, matching MVT's requirement that layer names are required and unique.
+/// A transform-group of primitives placed in tile space via `ObjectInstance`.
+///
+/// `name` is the MVT layer label (e.g. "buildings", "roads", "trees") and is the style
+/// sheet's targeting key. It is NOT required to be unique within a tile: many distinct
+/// Object3D entries may share the same `name` to represent many features in the same
+/// layer (e.g. one Object3D per building, all named "buildings"). This mirrors MVT, where
+/// a layer contains many features.
 ///
 /// **Validation**: `id` MUST be unique within `MLT3DScene.objects`.
-/// `name` MUST be unique within `MLT3DScene.objects`.
 /// Every entry in `primitive_ids` MUST refer to a local primitive (from `MLT3DScene.primitives`)
 /// or an imported primitive (from `MLT3DScene.imports`).
 pub const Object3D = struct {
     /// Unique within `MLT3DScene.objects`.
     id: ObjectId,
-    /// Required. Corresponds to MVT layer name for style sheet targeting and 2D/3D correlation.
+    /// MVT layer label for style sheet targeting and 2D/3D correlation.
+    /// Multiple Object3D entries may share the same `name`.
     name: Utf8String,
     /// Primitives that make up this object, referenced by ID.
     /// May reference both local primitives and imported primitives (via their local_id).
@@ -250,18 +284,16 @@ pub const Object3D = struct {
 
 /// Placement of an object into tile space.
 ///
-/// Multiple instances may share the same `feature_id`, allowing the style sheet to apply
-/// the same styling (e.g. highlight color) to all instances of the same logical entity.
+/// Feature attribution lives on `Primitive3D.feature_id`, not on the instance, so that
+/// the same logical road / building / asset is attributed in one place regardless of how
+/// many times its containing object is placed.
 ///
 /// **Validation**: `object_id` MUST refer to an entry in `MLT3DScene.objects`.
-/// When `feature_id` is present it MUST refer to an entry in `MLT3DScene.features`.
 pub const ObjectInstance = struct {
     /// Must refer to an entry in `MLT3DScene.objects`.
     object_id: ObjectId,
     /// Transform from object space to tile space. When null, identity is assumed.
     object_to_tile: ?Mat4x4f32 = null,
-    /// Optional link to per-feature metadata in `MLT3DScene.features`.
-    feature_id: ?FeatureId = null,
 };
 
 // ----------------------------------------------------------------------------
@@ -289,7 +321,7 @@ pub const FeatureProperty = struct {
 };
 
 /// A feature: an ID and its associated properties.
-/// Referenced by `ObjectInstance.feature_id`. Modeled after MVT feature properties.
+/// Referenced by `Primitive3D.feature_id`. Modeled after MVT feature properties.
 ///
 /// **Validation**: `id` MUST be unique within `MLT3DScene.features`.
 pub const Feature = struct {
@@ -307,16 +339,19 @@ pub const Feature = struct {
 ///
 /// **Validation (normative)**. Producers MUST satisfy all of the following;
 /// consumers/validators MUST reject tiles that do not:
-/// - **ID uniqueness**: `Primitive3D.id` unique within `primitives`; `Object3D.id` within
-///   `objects`; `Object3D.name` unique within `objects`; `Feature.id` within `features`.
-///   `AssetImport.local_id` unique and non-colliding with local primitive IDs.
-///   `FeatureProperty.name` is NOT required to be unique within a feature (following MVT conventions).
-/// - **Referential integrity**: Every `Object3D.primitive_ids` entry MUST refer to an existing
-///   local primitive or an imported primitive (by `local_id`). Every `ObjectInstance.object_id`
-///   MUST refer to an existing object. `ObjectInstance.feature_id` when present MUST refer to
-///   an existing feature.
-/// - **Banking angles**: `VertexBuffer.banking_angles` MUST only be present for `lines` and
-///   `line_strip` topologies.
+/// - **ID uniqueness**: `VertexBuffer.id` unique within `vertex_buffers`; `Primitive3D.id`
+///   unique within `primitives`; `Object3D.id` within `objects`; `Feature.id` within
+///   `features`. `AssetImport.local_id` unique and non-colliding with local primitive IDs.
+///   `Object3D.name` is NOT required to be unique (it is the MVT layer label; many objects
+///   may share a layer). `FeatureProperty.name` is NOT required to be unique within a
+///   feature (following MVT conventions).
+/// - **Referential integrity**: every `Primitive3D.vertex_buffer_id` MUST refer to an
+///   existing local vertex buffer. Every `Object3D.primitive_ids` entry MUST refer to an
+///   existing local primitive or an imported primitive (by `local_id`). Every
+///   `ObjectInstance.object_id` MUST refer to an existing object. `Primitive3D.feature_id`,
+///   when present, MUST refer to an existing feature.
+/// - **Banking angles**: `VertexBuffer.banking_angles` MUST only be consumed by primitives
+///   whose topology is `lines` or `line_strip`.
 /// - **Primitive restart**: `IndexBuffer.primitive_restart` MUST only be true for `line_strip`
 ///   and `triangle_strip` topologies.
 pub const MLT3DScene = struct {
@@ -333,7 +368,12 @@ pub const MLT3DScene = struct {
     /// height_in_meters = z_value * z_scale.
     z_scale: f32,
 
-    /// Geometry primitives defined locally in this tile.
+    /// Pure geometry resources, decoupled from primitives and objects. Multiple primitives
+    /// may reference the same vertex buffer.
+    vertex_buffers: []const VertexBuffer,
+
+    /// Geometry primitives defined locally in this tile. Each primitive is one draw unit
+    /// (topology + vertex buffer reference + optional index buffer + optional feature).
     primitives: []const Primitive3D,
 
     /// Import table for referencing primitives from external Asset Libraries.
@@ -343,7 +383,7 @@ pub const MLT3DScene = struct {
     /// Named collections of primitives. Placed into the scene via `ObjectInstance`.
     objects: []const Object3D,
 
-    /// Per-object properties for styling (filters, colors, labels). Aligned with MVT feature model.
+    /// Per-feature properties for styling (filters, colors, labels). Aligned with MVT feature model.
     features: []const Feature,
 
     /// Scene: flat list of object instances in tile space.

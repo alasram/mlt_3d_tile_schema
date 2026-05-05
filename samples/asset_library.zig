@@ -10,18 +10,23 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{
+                .id = 0,
+                .vertex_count = 3,
+                .positions = &building_positions,
+            },
+        },
         .primitives = &.{
             .{
                 .id = 0,
                 .topology = .triangles,
-                .vertex_buffer = .{
-                    .vertex_count = 3,
-                    .positions = &building_positions,
-                },
+                .vertex_buffer_id = 0,
             },
         },
         // Import two primitives from external Asset Libraries.
         // Local IDs 100 and 101 are chosen to avoid collision with local primitive ID 0.
+        // Imported primitives bring their own vertex buffers from the external file.
         .imports = &.{
             .{
                 .library_name = "maplibre_trees",
@@ -57,7 +62,7 @@ pub fn main() void {
         },
         .scene = &.{
             .{ .object_id = 0 },
-            // Three tree instances at different positions, all sharing the same feature.
+            // Two tree placements at different positions, sharing the same imported geometry.
             .{
                 .object_id = 1,
                 .object_to_tile = .{
@@ -66,7 +71,6 @@ pub fn main() void {
                     .{ 0, 0, 1, 0 },
                     .{ 200, 300, 0, 1 },
                 },
-                .feature_id = 0,
             },
             .{
                 .object_id = 1,
@@ -76,7 +80,6 @@ pub fn main() void {
                     .{ 0, 0, 1, 0 },
                     .{ 800, 600, 0, 1 },
                 },
-                .feature_id = 0,
             },
         },
     };

@@ -66,19 +66,21 @@ At a high level (see `format_3d_schema.zig`):
 - A `MLT3DScene` contains:
   - `extent`: single integer defining the coordinate range (like MVT extent).
   - `z_scale`: converts integer Z values to meters.
-  - `primitives`: geometry units (topology + vertex buffer).
+  - `vertex_buffers`: pure geometry data, decoupled from primitives. A vertex buffer may carry vertices for many features and be referenced by many primitives.
+  - `primitives`: draw units (topology + vertex buffer reference + optional index buffer + optional `feature_id`).
   - `imports`: import table for referencing primitives from external Asset Libraries.
-  - `objects`: named collections of primitive IDs (name is required, corresponds to MVT layer name).
-  - `features`: per-object name–value properties for styling.
+  - `objects`: named collections of primitive IDs. `name` is the MVT layer label and is NOT required to be unique (many objects may share a layer).
+  - `features`: per-feature name–value properties for styling.
   - `scene`: flat list of `ObjectInstance` entries.
 
 - Geometry is expressed as:
-  - `Primitive3D` (topology + vertex buffer).
-  - `VertexBuffer` has: `positions` (required), `indices` (optional), optional `banking_angles` (line topologies), and optional `custom_attributes`.
+  - `VertexBuffer`: `id`, `positions` (required), optional `banking_angles` (line topologies), optional `custom_attributes`. Pure data, no topology or feature attribution.
+  - `Primitive3D`: `topology` + `vertex_buffer_id` + optional `indices` (selects a subset of the referenced vertex buffer) + optional `feature_id`. Multiple primitives may share one vertex buffer.
+  - This decoupling lets producers merge meshes (e.g. all asphalt as one vertex buffer) and emit one `Primitive3D` per feature, each with its own `IndexBuffer` slicing the shared geometry.
   - All buffers are raw bytes stored as-is.
 
 - Instances:
-  - `ObjectInstance` places an `Object3D` into tile space via a `?Mat4x4f32`. Multiple instances may reference the same object at different transforms. Each instance has an optional `feature_id`.
+  - `ObjectInstance` places an `Object3D` into tile space via a `?Mat4x4f32`. Feature attribution lives on `Primitive3D.feature_id`, not on the instance.
 
 ## Build / run samples
 

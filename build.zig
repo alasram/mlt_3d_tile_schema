@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
         "banking_angle",
         "custom_attributes",
         "asset_library",
+        "merged_mesh",
         "scene_roads_trees",
     };
 

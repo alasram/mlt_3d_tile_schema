@@ -14,6 +14,7 @@ The tile carries geometry and data only — the style sheet controls all visual 
 | **banking_angle.zig** | **Banking angle**: `line_strip` road with per-vertex banking angles (tenths of a degree) for tilted road ribbons. |
 | **custom_attributes.zig** | **Custom vertex attributes**: per-vertex `temperature` (f32) and `elevation` (i32) values that the style sheet maps to visual properties. |
 | **asset_library.zig** | **Asset Library**: importing shared tree primitives from an external Asset Library via the import table, mixed with local primitives. |
+| **merged_mesh.zig** | **Shared vertex buffer + per-primitive feature IDs**: one merged `VertexBuffer` shared by many primitives, each slicing it with its own `IndexBuffer` and tagged with its own `feature_id`. |
 | **scene_roads_trees.zig** | **Combined scene**: roads with banking angles + trees via instancing, multiple object types and features in one tile. |
 
 ## Build

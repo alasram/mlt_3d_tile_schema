@@ -11,9 +11,15 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{ .id = 0, .vertex_count = 3, .positions = &trunk_positions },
+            .{ .id = 1, .vertex_count = 4, .positions = &canopy_positions },
+        },
         .primitives = &.{
-            .{ .id = 0, .topology = .triangles, .vertex_buffer = .{ .vertex_count = 3, .positions = &trunk_positions } },
-            .{ .id = 1, .topology = .triangles, .vertex_buffer = .{ .vertex_count = 4, .positions = &canopy_positions } },
+            // Both primitives carry feature_id 0 so every placement of the tree object
+            // is attributed to the same "species: oak" feature.
+            .{ .id = 0, .topology = .triangles, .vertex_buffer_id = 0, .feature_id = 0 },
+            .{ .id = 1, .topology = .triangles, .vertex_buffer_id = 1, .feature_id = 0 },
         },
         .objects = &.{
             .{
@@ -31,8 +37,7 @@ pub fn main() void {
             },
         },
         .scene = &.{
-            // Three instances of the same tree at different positions.
-            // Each shares the same feature_id so the style sheet can style them uniformly.
+            // Three placements of the same tree object at different positions.
             .{
                 .object_id = 0,
                 .object_to_tile = .{
@@ -41,7 +46,6 @@ pub fn main() void {
                     .{ 0, 0, 1, 0 },
                     .{ 100, 200, 0, 1 },
                 },
-                .feature_id = 0,
             },
             .{
                 .object_id = 0,
@@ -51,7 +55,6 @@ pub fn main() void {
                     .{ 0, 0, 1, 0 },
                     .{ 500, 300, 0, 1 },
                 },
-                .feature_id = 0,
             },
             .{
                 .object_id = 0,
@@ -61,7 +64,6 @@ pub fn main() void {
                     .{ 0, 0, 1, 0 },
                     .{ 900, 100, 0, 1 },
                 },
-                .feature_id = 0,
             },
         },
     };

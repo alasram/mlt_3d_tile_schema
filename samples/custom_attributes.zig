@@ -13,26 +13,30 @@ pub fn main() void {
     const tile = schema.MLT3DScene{
         .extent = 4096,
         .z_scale = 0.01,
+        .vertex_buffers = &.{
+            .{
+                .id = 0,
+                .vertex_count = 6,
+                .positions = &positions,
+                .custom_attributes = &.{
+                    .{
+                        .name = "temperature",
+                        .attribute_type = .f32,
+                        .data = &temperature_data,
+                    },
+                    .{
+                        .name = "elevation",
+                        .attribute_type = .i32,
+                        .data = &elevation_data,
+                    },
+                },
+            },
+        },
         .primitives = &.{
             .{
                 .id = 0,
                 .topology = .triangles,
-                .vertex_buffer = .{
-                    .vertex_count = 6,
-                    .positions = &positions,
-                    .custom_attributes = &.{
-                        .{
-                            .name = "temperature",
-                            .attribute_type = .f32,
-                            .data = &temperature_data,
-                        },
-                        .{
-                            .name = "elevation",
-                            .attribute_type = .i32,
-                            .data = &elevation_data,
-                        },
-                    },
-                },
+                .vertex_buffer_id = 0,
             },
         },
         .objects = &.{
