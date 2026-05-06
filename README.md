@@ -5,8 +5,10 @@ This repository contains a **draft 3D tile schema** intended to be used with **M
 The goal is to propose what's required for a simple, useful 3D tile payload for maps, with an emphasis on:
 
 - **Simplicity over completeness**: align with MVT's "one tile payload" model and keep the format small and understandable.
+- **Standalone source**: the format can be the only data source for typical 2D + 2.5D map content (buildings, parks, water, land use). Mixing with MVT for hybrid stacks remains a style-sheet concern (multiple sources, layered at render time).
+- **First-class polygons + extrusion**: `Topology.polygon` carries footprint rings (exterior + holes); `Primitive3D.height` extrudes uniformly; optional `VertexBuffer.top_z` provides per-vertex roof Z for sloped roofs. Unlike MVT, extrusion is a schema field — renderers extrude without needing a style rule.
 - **Geometry only, style-driven appearance**: the tile carries geometry and data; the style sheet controls all visual presentation (color, shading, opacity, etc.) — the same approach as MVT.
-- **Fixed vertex types**: positions (`vec3i32`), optional banking angles (`i32` for line topologies), and optional custom vertex attributes (`i32` or `f32`). No generic attribute descriptors.
+- **Fixed vertex types**: positions (`vec3i32`), optional banking angles (`i32` for line topologies), optional per-vertex roof Z (`i32` for polygons), and optional custom vertex attributes (`i32` or `f32`). No generic attribute descriptors.
 - **MVT-aligned features**: per-instance feature properties (name–value pairs) for styling, filtering, and labeling — the same mental model as MVT feature properties.
 - **Asset Library**: shared assets (trees, poles, etc.) stored in external MLT files and referenced via an import table.
 
@@ -67,15 +69,16 @@ At a high level (see `format_3d_schema.zig`):
   - `extent`: single integer defining the coordinate range (like MVT extent).
   - `z_scale`: converts integer Z values to meters.
   - `vertex_buffers`: pure geometry data, decoupled from primitives. A vertex buffer may carry vertices for many features and be referenced by many primitives.
-  - `primitives`: draw units (topology + vertex buffer reference + optional index buffer + optional `feature_id`).
+  - `primitives`: draw units (topology + vertex buffer reference + optional index buffer + polygon `ring_offsets` and `height` + optional `feature_id`).
   - `imports`: import table for referencing primitives from external Asset Libraries.
   - `objects`: named collections of primitive IDs. `name` is the MVT layer label and is NOT required to be unique (many objects may share a layer).
   - `features`: per-feature name–value properties for styling.
   - `scene`: flat list of `ObjectInstance` entries.
 
 - Geometry is expressed as:
-  - `VertexBuffer`: `id`, `positions` (required), optional `banking_angles` (line topologies), optional `custom_attributes`. Pure data, no topology or feature attribution.
-  - `Primitive3D`: `topology` + `vertex_buffer_id` + optional `indices` (selects a subset of the referenced vertex buffer) + optional `feature_id`. Multiple primitives may share one vertex buffer.
+  - `VertexBuffer`: `id`, `positions` (required), optional `banking_angles` (line topologies), optional `top_z` (polygon topology, per-vertex roof Z), optional `custom_attributes`. Pure data, no topology or feature attribution.
+  - `Primitive3D`: `topology` + `vertex_buffer_id` + optional `indices` (selects a subset of the referenced vertex buffer) + optional `ring_offsets` (required for `polygon` topology) + optional `height` (uniform polygon extrusion) + optional `feature_id`. Multiple primitives may share one vertex buffer.
+  - Topologies: `points`, `lines`, `line_strip`, `triangles`, `triangle_strip`, and `polygon` (filled polygon with exterior + hole rings; renderer triangulates the cap and generates side walls when extruded).
   - This decoupling lets producers merge meshes (e.g. all asphalt as one vertex buffer) and emit one `Primitive3D` per feature, each with its own `IndexBuffer` slicing the shared geometry.
   - All buffers are raw bytes stored as-is.
 

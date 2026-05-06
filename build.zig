@@ -19,6 +19,9 @@ pub fn build(b: *std.Build) void {
         "asset_library",
         "merged_mesh",
         "scene_roads_trees",
+        "extruded_polygons",
+        "polygon_with_holes",
+        "sloped_roof",
     };
 
     for (sample_names) |name| {

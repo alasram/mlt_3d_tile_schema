@@ -16,6 +16,9 @@ The tile carries geometry and data only — the style sheet controls all visual 
 | **asset_library.zig** | **Asset Library**: importing shared tree primitives from an external Asset Library via the import table, mixed with local primitives. |
 | **merged_mesh.zig** | **Shared vertex buffer + per-primitive feature IDs**: one merged `VertexBuffer` shared by many primitives, each slicing it with its own `IndexBuffer` and tagged with its own `feature_id`. |
 | **scene_roads_trees.zig** | **Combined scene**: roads with banking angles + trees via instancing, multiple object types and features in one tile. |
+| **extruded_polygons.zig** | **Native extruded polygon**: building footprints with `Topology.polygon`, `ring_offsets`, and `Primitive3D.height`. Renderer extrudes without needing a style rule (unlike MVT). |
+| **polygon_with_holes.zig** | **Polygon with holes**: building footprint + courtyard hole. Demonstrates `ring_offsets` with multiple rings (exterior first, then holes). |
+| **sloped_roof.zig** | **Per-vertex roof Z**: `VertexBuffer.top_z` carries an absolute roof elevation per vertex for sloped roofs. Mutually exclusive with `Primitive3D.height`. |
 
 ## Build
 

@@ -30,7 +30,7 @@ The key design principle: **any user familiar with MVT can easily use 3D data an
 | **Primary focus** | Single-tile 3D geometry for map stacks | Streaming 3D geospatial tiles | Scene layers (buildings, mesh, point clouds) | 3D city model semantics | Point clouds only | Single 3D asset |
 | **Appearance** | Style-sheet-driven (no materials in tile) | glTF materials, PBR | Per-layer / per-node materials | Appearance module | Point color/intensity | Full PBR materials |
 | **Tile structure** | One tile per zoom/x/y (MVT-aligned) | Tileset tree, spatial hierarchy | Node tree, LOD | N/A (full dataset) | Single file, octree | N/A (single asset) |
-| **Geometry** | Primitives + vertex buffers | glTF, b3dm, i3dm, pnts | Mesh/point per node | Boundary representation | LAS/LAZ points | Meshes, accessors |
+| **Geometry** | Primitives + vertex buffers, native polygons (rings + first-class extrusion) | glTF, b3dm, i3dm, pnts | Mesh/point per node | Boundary representation | LAS/LAZ points | Meshes, accessors |
 | **Features / styling** | MVT-aligned feature properties | Batch table, feature IDs | Per-feature attributes | CityGML semantics | LAS point attributes | N/A |
 | **Custom data** | Custom vertex attributes (i32/f32) | Metadata, extensions | Attribute fields | Thematic attributes | Extra bytes | Extensions |
 | **Shared assets** | Asset Library (external MLT file) | External tilesets | Shared resources | N/A | N/A | N/A |
@@ -141,8 +141,9 @@ The key design principle: **any user familiar with MVT can easily use 3D data an
 
 ### MVT (Mapbox Vector Tiles)
 
-- **Relationship:** MLT 3D is designed to **coexist with MVT** in MLT. Same tile addressing (zoom/x/y). MVT for 2D vector layers, MLT 3D for 3D geometry. Feature properties and the style sheet model are conceptually aligned.
-- **Coordinate alignment:** Local tile coordinates use MVT's integer extent units for X/Y. Z uses the same units; `z_scale` converts to meters.
+- **Relationship:** MLT 3D can be a **standalone source** for typical 2D + 2.5D map content (buildings, parks, water, land use). It can also coexist with MVT — same tile addressing (zoom/x/y), shared feature-property model, identical style-sheet targeting by layer name. Mixing the two is a style-sheet concern (multiple sources, layered at render time), not a tile-payload concern.
+- **Coordinate alignment:** Local tile coordinates use MVT's integer extent units for X/Y. Z uses the same units; `z_scale` converts to meters. 2D content maps directly into the schema with `z = 0`.
+- **Polygons + extrusion:** MVT carries 2D polygons and relies on the style sheet (`fill-extrusion-height`) to extrude buildings. MLT 3D goes further: `Topology.polygon` carries footprint rings (via `Primitive3D.ring_offsets`), and `Primitive3D.height` (or `VertexBuffer.top_z` for sloped roofs) is a **first-class schema field** — the renderer can extrude without any style rule. This is the key delta that lets a typical OSM-buildings pipeline publish only MLT 3D.
 - **Style sheet:** A single style sheet targets both 2D MVT layers and 3D objects by name. The style sheet sees one combined MLT — it does not distinguish between frames.
 
 ### glTF 2.0
