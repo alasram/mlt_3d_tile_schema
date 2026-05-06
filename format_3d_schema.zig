@@ -55,6 +55,30 @@
 //! pool rather than a renderable tile). A tile references external primitives via the import
 //! table, which maps each external primitive to a local PrimitiveId within the tile.
 //!
+//! ## Polygons and extrusion
+//!
+//! `Topology.polygon` is a filled polygon described by one or more rings (1 exterior +
+//! N holes). Ring layout is defined by `Primitive3D.ring_offsets`; rings are stored
+//! **open** (last vertex != first) and the renderer closes them implicitly.
+//!
+//! Unlike MVT — where a polygon is a 2D footprint and the style sheet is required to
+//! extrude it via `fill-extrusion-height` — MLT 3D treats extrusion as a **first-class
+//! schema concept**:
+//! - Base elevation is per-vertex in `positions.z` (handles flat ground, draped
+//!   footprints, and OSM `min_height`).
+//! - `Primitive3D.height` extrudes the polygon uniformly: `top_z[v] = positions[v].z +
+//!   height`. Renderers extrude without needing a style rule.
+//! - For sloped roofs, `VertexBuffer.top_z` carries an absolute roof elevation per
+//!   vertex and replaces the uniform height. `Primitive3D.height` MUST be `null` when
+//!   its referenced vertex buffer carries `top_z`.
+//! - When neither `height` nor `top_z` is present, the polygon is a flat 2D polygon
+//!   (parks, water, land cover) at the per-vertex base z. Same primitive, no schema
+//!   bifurcation.
+//!
+//! This makes MLT 3D usable as a standalone source for typical 2D + 2.5D map content;
+//! mixing with MVT for hybrid stacks remains a style-sheet concern (multiple sources,
+//! layered at render time).
+//!
 //! ## Type simplification
 //!
 //! All integer types use i32 or u32 unless MVT interop requires otherwise. MLT applies
@@ -67,8 +91,14 @@
 
 /// Draw topology for a primitive.
 ///
-/// **Validation**: `primitive_restart` in `IndexBuffer` is only valid for `line_strip`
-/// and `triangle_strip`.
+/// **Validation**:
+/// - `primitive_restart` in `IndexBuffer` is only valid for `line_strip` and
+///   `triangle_strip`. Polygons MUST use `Primitive3D.ring_offsets` instead of restart
+///   sentinels.
+/// - `Primitive3D.ring_offsets` is required when topology is `polygon` and MUST be
+///   `null` for any other topology.
+/// - `Primitive3D.height` and `VertexBuffer.top_z` are valid only for `polygon`
+///   topology.
 ///
 /// Note: `triangle_fan` is intentionally absent — it is not supported in WebGPU and can
 /// be trivially converted to a `triangles` list or `triangle_strip` before encoding.
@@ -78,6 +108,11 @@ pub const Topology = enum(u8) {
     line_strip = 2,
     triangles = 3,
     triangle_strip = 4,
+    /// Filled polygon described by one or more rings. The first ring is the exterior;
+    /// any additional rings are holes (GeoJSON / MVT convention). Rings are stored open
+    /// (no explicit closing vertex) and delimited by `Primitive3D.ring_offsets`.
+    /// Renderers triangulate the cap and, when extruded, generate side walls.
+    polygon = 5,
 };
 
 // ----------------------------------------------------------------------------
@@ -168,6 +203,7 @@ pub const IndexBuffer = struct {
 /// Buffer layouts (all little-endian):
 /// - positions:      vertex_count × 12 bytes (3 × i32)
 /// - banking_angles: vertex_count × 4 bytes  (1 × i32, tenths of a degree)
+/// - top_z:          vertex_count × 4 bytes  (1 × i32, absolute roof elevation)
 ///
 /// **Validation**:
 /// - `id` MUST be unique within `MLT3DScene.vertex_buffers`.
@@ -177,6 +213,12 @@ pub const IndexBuffer = struct {
 ///   Specifies rotation around the line's tangent direction. Zero means horizontal (flat road).
 ///   Positive values tilt clockwise when looking in the forward direction.
 ///   When present, enables road ribbon creation. When absent, only a stroke can be drawn.
+/// - `top_z`: optional i32 per vertex (absolute roof elevation in the same coordinate
+///   frame and units as `positions.z`). Only valid when consumed by primitives whose
+///   topology is `polygon`. Models sloped roofs (per-vertex roof Z). When `top_z` is
+///   present, every consuming polygon primitive MUST set `Primitive3D.height = null`
+///   (the per-vertex roof is the source of truth; mutually exclusive with the uniform
+///   primitive-level height to avoid two ways of expressing the same value).
 /// - `custom_attributes`: each attribute array MUST contain exactly `vertex_count` elements.
 pub const VertexBuffer = struct {
     /// Unique within `MLT3DScene.vertex_buffers`.
@@ -192,6 +234,11 @@ pub const VertexBuffer = struct {
     /// Only valid when consumed by primitives with `lines` or `line_strip` topology.
     /// Specifies rotation around the line's tangent direction for road ribbons.
     banking_angles: ?[]const u8 = null,
+
+    /// Per-vertex absolute roof elevation: i32. Optional. Same units as `positions.z`.
+    /// Only valid when consumed by primitives with `polygon` topology. Used for sloped
+    /// roofs. When present, every consuming polygon primitive MUST have `height = null`.
+    top_z: ?[]const u8 = null,
 
     /// Custom per-vertex attribute arrays. Optional.
     /// Each attribute has a name, type (i32 or f32), and data array with vertex_count elements.
@@ -240,6 +287,23 @@ pub const AssetImport = struct {
 /// - When `indices` is absent, the primitive draws all vertices of the referenced vertex
 ///   buffer in order (their count MUST be valid for the topology).
 /// - `feature_id`, when present, MUST refer to an entry in `MLT3DScene.features`.
+/// - `ring_offsets`:
+///   - REQUIRED when `topology == .polygon`; MUST be `null` for any other topology.
+///   - Length MUST be ≥ 2 and values MUST be strictly increasing.
+///   - First element MUST be 0; last element MUST equal the primitive's draw count
+///     (`indices.element_count` if `indices` is present, else the consumed slice of
+///     `vertex_buffer.vertex_count`).
+///   - Each ring (slice between consecutive offsets) MUST contain ≥ 3 vertices.
+///   - First ring is the exterior; subsequent rings are holes.
+///   - Rings are stored OPEN (no explicit closing vertex); the renderer closes implicitly.
+/// - `height`:
+///   - Only valid when `topology == .polygon`; MUST be `null` for any other topology.
+///   - When set, the polygon is extruded uniformly: `top_z[v] = positions[v].z + height`
+///     for every footprint vertex. Same units as `positions.z`.
+///   - MUST be `null` when the referenced `VertexBuffer` carries `top_z` (the per-vertex
+///     roof Z is the source of truth; the two are mutually exclusive).
+///   - When both `height` and `vertex_buffer.top_z` are absent, the polygon is a flat 2D
+///     polygon at the per-vertex base z (parks, water, land cover).
 pub const Primitive3D = struct {
     /// Unique within `MLT3DScene.primitives`.
     id: PrimitiveId,
@@ -250,6 +314,17 @@ pub const Primitive3D = struct {
     /// Optional index buffer selecting a subset of the referenced vertex buffer.
     /// When absent, vertices are drawn in sequential order.
     indices: ?IndexBuffer = null,
+    /// Polygon ring offsets. Required when `topology == .polygon`, forbidden otherwise.
+    /// Indexes into the primitive's draw stream — the index buffer when `indices` is
+    /// present, otherwise the vertex buffer directly. Length is `ring_count + 1`; each
+    /// pair of consecutive offsets bounds one ring (open, no closing vertex). First ring
+    /// is the exterior; subsequent rings are holes.
+    ring_offsets: ?[]const u32 = null,
+    /// Uniform polygon extrusion in extent units (same units as `positions.z`).
+    /// Only valid when `topology == .polygon`. When set, `top_z[v] = positions[v].z + height`.
+    /// MUST be `null` when the referenced vertex buffer carries `top_z` (per-vertex
+    /// roof Z replaces uniform height). When both are absent, the polygon is flat 2D.
+    height: ?i32 = null,
     /// Optional feature attribution for the geometry drawn by this primitive.
     /// Use to attach per-feature properties (road class, building name, etc.) to a slice
     /// of a shared vertex buffer.
@@ -353,7 +428,14 @@ pub const Feature = struct {
 /// - **Banking angles**: `VertexBuffer.banking_angles` MUST only be consumed by primitives
 ///   whose topology is `lines` or `line_strip`.
 /// - **Primitive restart**: `IndexBuffer.primitive_restart` MUST only be true for `line_strip`
-///   and `triangle_strip` topologies.
+///   and `triangle_strip` topologies. Polygons use `Primitive3D.ring_offsets` instead.
+/// - **Polygon ring offsets**: `Primitive3D.ring_offsets` MUST be present when
+///   `topology == .polygon` and absent otherwise. Length ≥ 2, strictly increasing, first
+///   element 0, last element equals the primitive's draw count, every ring ≥ 3 vertices.
+/// - **Polygon extrusion**: `Primitive3D.height` MUST be `null` for any non-polygon
+///   topology. `VertexBuffer.top_z` MUST only be consumed by polygon-topology primitives.
+///   When a vertex buffer carries `top_z`, every polygon primitive consuming it MUST
+///   have `height = null` (per-vertex roof Z and uniform height are mutually exclusive).
 pub const MLT3DScene = struct {
     /// Schema version. Producers MUST set this to 1. Consumers MUST reject tiles with an
     /// unrecognized version number.
